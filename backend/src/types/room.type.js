@@ -1,26 +1,35 @@
-// backend/src/types/room.type.js
-
 /**
- * @typedef {{x:number, y:number, d:string, moving: boolean}} PlayerState
+ * @typedef {{x:number, y:number, d:string, moving:boolean}} PlayerState
  */
 
 /**
  * @typedef {{
  *   id: string,
  *   name: string,
- *   roomId: string,
+ *   roomId: string|null,
  *   state: PlayerState,
  *   color: string,
  *   isImposter: boolean,
  *   isAlive: boolean
  * }} Player
  */
+
+/**
+ * @typedef {{
+ *   ejectedId: string|null,
+ *   tie: boolean,
+ *   counts: {[playerId: string]: number},
+ *   votes: {[playerId: string]: string|null}
+ * }} MeetingResults
+ */
+
 /**
  * @typedef {{
  *   isActive: boolean,
  *   callerId: string,
- *   votes: {[playerId: string]: string}, // playerId -> votedForId
- *   endTime: number
+ *   votes: {[playerId: string]: string|null}, // playerId -> votedForId
+ *   endTime: number,
+ *   results?: MeetingResults
  * }} MeetingState
  */
 

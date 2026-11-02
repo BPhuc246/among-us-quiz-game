@@ -20,7 +20,7 @@ router.get("/player/room/:playerId", (req, res) => {
         res.status(404).json({ error: "Player not found" });
         return;
     }
-    const room = RoomsManager.fetchRoom(player.roomId);
+    const room = RoomsManager.fetchRoom(String(player.roomId));
     if (!room) {
         res.status(404).json({ error: "Room not found" });
         return;
@@ -31,7 +31,7 @@ router.get("/player/room/:playerId", (req, res) => {
 router.get("/isImposter/", (req, res) => {
     const playerId = req.query.playerId;
     const roomId = req.query.roomId;
-    const room = RoomsManager.fetchRoom(roomId);
+    const room = RoomsManager.fetchRoom(String(roomId));
     if (!room) {
         console.log("Room not found for isImposter check:", roomId);
         res.status(404).json({ error: "Room not found" });
@@ -43,7 +43,12 @@ router.get("/isImposter/", (req, res) => {
         return;
     }
     const isImposter = room.imposter === playerId;
-    console.log("Checking if player is imposter:", playerId, room.imposter, isImposter);
+    console.log(
+        "Checking if player is imposter:",
+        playerId,
+        room.imposter,
+        isImposter,
+    );
     res.json({ isImposter });
 });
 

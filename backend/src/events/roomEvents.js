@@ -1,26 +1,49 @@
 import {PlayersManager} from "../managers/players.manager.js";
 import {RoomsManager} from "../managers/rooms.manager.js";
 
+/**
+ * @typedef {{id: string, name: string, color: string}} RegisterData
+ * @typedef {{playerId: string}} PlayerIdData
+ * @typedef {{hostId: string, roomId: string}} RoomCreateData
+ * @typedef {{playerId: string, roomId: string}} RoomJoinData
+ * @typedef {{roomId: string}} GameStartData
+ * @typedef {{roomId: string, playerId: string, message: string}} SendMessageData
+ */
+
 // Track socket to player mapping for cleanup on disconnect
+/** @type {{[socketId: string]: string}} */
 const socketToPlayerId = {};
 
+/**
+ * @param {import('socket.io').Server} io
+ * @param {import('socket.io').Socket} socket
+ * @returns {void}
+ */
 export const registerRoomEvents = (io, socket) => {
     /**
-     * @param {{id: string, name: string, color: string}} data
+     * @param {RegisterData} data
+     * @returns {void}
      */
     const playerRegister = (data) => {
         console.log("Player register received:", data);
         PlayersManager.createPlayer(data.id, data.name, data.color);
         socket.emit('player:registered', {playerId: data.id});
-    }
+    };
+
+    /**
+     * @param {PlayerIdData} data
+     * @returns {void}
+     */
     const playerUnregister = (data) => {
         console.log("Player unregister received:", data);
         PlayersManager.deletePlayer(data.playerId);
         // TODO REMOVE FROM THE ROOM TOO AND SEND WIN CONDITION CHECK
         socket.emit('player:unregistered');
-    }
+    };
+
     /**
-     * @param {{hostId : string, roomId}} data
+     * @param {RoomCreateData} data
+     * @returns {void}
      */
     const roomCreate = (data) => {
         console.log("Room create received:", data);
@@ -32,9 +55,11 @@ export const registerRoomEvents = (io, socket) => {
         const room = RoomsManager.createRoom(data.roomId, player);
         io.emit("room:created", {roomId: data.roomId, room: room});
         roomJoin({playerId: data.hostId, roomId: data.roomId});
-    }
+    };
+
     /**
-     * @param {{playerId : string, roomId: string}} data
+     * @param {RoomJoinData} data
+     * @returns {void}
      */
     const roomJoin = (data) => {
         console.log("Room join received:", data);
@@ -46,7 +71,7 @@ export const registerRoomEvents = (io, socket) => {
         // Track socket to player mapping for cleanup on unexpected disconnect
         socketToPlayerId[socket.id] = data.playerId;
 
-        let player = PlayersManager.getPlayer(data.playerId);
+        const player = PlayersManager.getPlayer(data.playerId);
         if (!player) {
             socket.emit("room:join:error", {message: "Player not registered. Register first."});
             console.error("Player not found for room join:", data.playerId);
@@ -64,12 +89,22 @@ export const registerRoomEvents = (io, socket) => {
             return;
         }
 
-        player = RoomsManager.players.add(data.roomId, player);
+        const joinedPlayer = RoomsManager.players.add(data.roomId, player);
+        if (!joinedPlayer) {
+            socket.emit("room:join:error", {message: "Could not join room"});
+            return;
+        }
+
         socket.join(data.roomId);
         // TODO remove sending whole room object with imposter
-        socket.emit("room:joined", {roomId: data.roomId, room, player, started: room.started});
-        socket.to(data.roomId).emit("player:joined", {player, roomId: data.roomId});
-    }
+        socket.emit("room:joined", {roomId: data.roomId, room, player: joinedPlayer, started: room.started});
+        socket.to(data.roomId).emit("player:joined", {player: joinedPlayer, roomId: data.roomId});
+    };
+
+    /**
+     * @param {PlayerIdData} data
+     * @returns {void}
+     */
     const roomLeave = (data) => {
         console.log("Room leave received:", data);
         const player = PlayersManager.getPlayer(data.playerId);
@@ -81,20 +116,25 @@ export const registerRoomEvents = (io, socket) => {
             return;
         }
 
-        const { deleted } = RoomsManager.players.remove(roomId, player);
+        const {deleted} = RoomsManager.players.remove(roomId, player);
         PlayersManager.resetPlayer(data.playerId);
         const win = RoomsManager.checkWin(roomId);
         console.log("Win condition check after player leave:", win);
         if (win !== null) {
-            io.to(roomId).emit("game:ended", { roomId, isImposter: win });
+            io.to(roomId).emit("game:ended", {roomId, isImposter: win});
         }
-        io.to(roomId).emit("player:left", { playerId: player.id });
+        io.to(roomId).emit("player:left", {playerId: player.id});
         PlayersManager.setRoomId(player.id, null);
         socket.leave(roomId);
         if (deleted) {
-            io.emit("room:deleted", { roomId });
+            io.emit("room:deleted", {roomId});
         }
-    }
+    };
+
+    /**
+     * @param {GameStartData} data
+     * @returns {void}
+     */
     const gameStart = (data) => {
         console.log("Game start received:", data);
         const room = RoomsManager.fetchRoom(data.roomId);
@@ -111,11 +151,21 @@ export const registerRoomEvents = (io, socket) => {
         }
         RoomsManager.startGame(data.roomId);
         io.to(data.roomId).emit("game:started", data);
-    }
+    };
+
+    /**
+     * @param {SendMessageData} data
+     * @returns {void}
+     */
     const sendMessage = (data) => {
         console.log("Send message received:", data);
         io.to(data.roomId).emit("room:message", {playerId: data.playerId, message: data.message});
-    }
+    };
+
+    /**
+     * @param {string} reason
+     * @returns {void}
+     */
     const disconnect = (reason) => {
         console.log("Socket disconnected. Reason:", reason);
         // Handle unexpected disconnections by cleaning up the player
@@ -131,7 +181,7 @@ export const registerRoomEvents = (io, socket) => {
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
-                if (!(win === null)) {
+                if (win !== null) {
                     io.to(roomId).emit("game:ended", {roomId, isImposter: win});
                 }
 
@@ -141,31 +191,41 @@ export const registerRoomEvents = (io, socket) => {
             }
             delete socketToPlayerId[socket.id];
         }
-    }
+    };
+
+    /**
+     * @param {PlayerIdData} data
+     * @returns {void}
+     */
     const playerDisconnect = (data) => {
         console.log("Player disconnected:", data);
         const player = PlayersManager.getPlayer(data.playerId);
         if (player) {
             const roomId = player.roomId;
-            const {deleted} = RoomsManager.players.remove(roomId, player);
-            socket.to(roomId).emit("player:left", {playerId: player.id});
-            PlayersManager.deletePlayer(data.playerId);
+            if (roomId) {
+                const {deleted} = RoomsManager.players.remove(roomId, player);
+                socket.to(roomId).emit("player:left", {playerId: player.id});
+                PlayersManager.deletePlayer(data.playerId);
 
-            // Check win condition after player removal
-            const win = RoomsManager.checkWin(roomId);
-            if (!(win === null)) {
-                io.to(roomId).emit("game:ended", {roomId, isImposter: win});
-            }
+                // Check win condition after player removal
+                const win = RoomsManager.checkWin(roomId);
+                if (win !== null) {
+                    io.to(roomId).emit("game:ended", {roomId, isImposter: win});
+                }
 
-            if (deleted) {
-                io.emit("room:deleted", {roomId});
+                if (deleted) {
+                    io.emit("room:deleted", {roomId});
+                }
+            } else {
+                PlayersManager.deletePlayer(data.playerId);
             }
         }
         // Clean up socket mapping
         delete socketToPlayerId[socket.id];
-    }
-    socket.on("log", (data) => {
-        console.log(data)
+    };
+
+    socket.on("log", (/** @type {unknown} */ data) => {
+        console.log(data);
     });
     socket.on("player:register", playerRegister);
     socket.on("player:unregister", playerUnregister);
@@ -177,4 +237,4 @@ export const registerRoomEvents = (io, socket) => {
     socket.on("room:send:message", sendMessage);
     socket.on("disconnect", disconnect);
     // TODO cleanup old imposter sending logic
-}
+};
