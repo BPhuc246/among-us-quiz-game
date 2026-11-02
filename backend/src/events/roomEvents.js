@@ -1,10 +1,10 @@
-import {PlayersManager} from "../managers/players.manager.js";
-import {RoomsManager} from "../managers/rooms.manager.js";
+import { PlayersManager } from "../managers/players.manager.js";
+import { RoomsManager } from "../managers/rooms.manager.js";
 
 /**
  * @typedef {{id: string, name: string, color: string}} RegisterData
  * @typedef {{playerId: string}} PlayerIdData
- * @typedef {{hostId: string, roomId: string}} RoomCreateData
+ * @typedef {{hostId: string, roomId: string, questions?: unknown}} RoomCreateData
  * @typedef {{playerId: string, roomId: string}} RoomJoinData
  * @typedef {{roomId: string}} GameStartData
  * @typedef {{roomId: string, playerId: string, message: string}} SendMessageData
@@ -27,7 +27,7 @@ export const registerRoomEvents = (io, socket) => {
     const playerRegister = (data) => {
         console.log("Player register received:", data);
         PlayersManager.createPlayer(data.id, data.name, data.color);
-        socket.emit('player:registered', {playerId: data.id});
+        socket.emit("player:registered", { playerId: data.id });
     };
 
     /**
@@ -38,7 +38,7 @@ export const registerRoomEvents = (io, socket) => {
         console.log("Player unregister received:", data);
         PlayersManager.deletePlayer(data.playerId);
         // TODO REMOVE FROM THE ROOM TOO AND SEND WIN CONDITION CHECK
-        socket.emit('player:unregistered');
+        socket.emit("player:unregistered");
     };
 
     /**
@@ -52,9 +52,17 @@ export const registerRoomEvents = (io, socket) => {
             console.error("Player not found for room creation:", data.hostId);
             return;
         }
-        const room = RoomsManager.createRoom(data.roomId, player);
-        io.emit("room:created", {roomId: data.roomId, room: room});
-        roomJoin({playerId: data.hostId, roomId: data.roomId});
+        const questions = RoomsManager.parseQuestions(
+            data.roomId,
+            data.questions,
+        );
+        const room = RoomsManager.createRoom(data.roomId, player, questions);
+        // Không gửi đáp án cho client
+        io.emit("room:created", {
+            roomId: data.roomId,
+            room: RoomsManager.toPublicRoom(room),
+        });
+        roomJoin({ playerId: data.hostId, roomId: data.roomId });
     };
 
     /**
@@ -64,7 +72,9 @@ export const registerRoomEvents = (io, socket) => {
     const roomJoin = (data) => {
         console.log("Room join received:", data);
         if (!data?.playerId || !data?.roomId) {
-            socket.emit("room:join:error", {message: "Missing playerId or roomId"});
+            socket.emit("room:join:error", {
+                message: "Missing playerId or roomId",
+            });
             return;
         }
 
@@ -73,32 +83,48 @@ export const registerRoomEvents = (io, socket) => {
 
         const player = PlayersManager.getPlayer(data.playerId);
         if (!player) {
-            socket.emit("room:join:error", {message: "Player not registered. Register first."});
+            socket.emit("room:join:error", {
+                message: "Player not registered. Register first.",
+            });
             console.error("Player not found for room join:", data.playerId);
             return;
         }
 
         if (player.roomId && player.roomId !== data.roomId) {
-            roomLeave({playerId: data.playerId});
+            roomLeave({ playerId: data.playerId });
         }
 
         const room = RoomsManager.fetchRoom(data.roomId);
         if (!room || room.started) {
-            socket.emit("room:join:error", {message: "Room not found or game already started"});
-            console.error("Room not found or game already started:", data.roomId);
+            socket.emit("room:join:error", {
+                message: "Room not found or game already started",
+            });
+            console.error(
+                "Room not found or game already started:",
+                data.roomId,
+            );
             return;
         }
 
         const joinedPlayer = RoomsManager.players.add(data.roomId, player);
         if (!joinedPlayer) {
-            socket.emit("room:join:error", {message: "Could not join room"});
+            socket.emit("room:join:error", { message: "Could not join room" });
             return;
         }
 
         socket.join(data.roomId);
         // TODO remove sending whole room object with imposter
-        socket.emit("room:joined", {roomId: data.roomId, room, player: joinedPlayer, started: room.started});
-        socket.to(data.roomId).emit("player:joined", {player: joinedPlayer, roomId: data.roomId});
+        const publicRoom = RoomsManager.toPublicRoom(room);
+        socket.emit("room:joined", {
+            roomId: data.roomId,
+            room: publicRoom,
+            player: joinedPlayer,
+            started: room.started,
+        });
+        socket.to(data.roomId).emit("player:joined", {
+            player: joinedPlayer,
+            roomId: data.roomId,
+        });
     };
 
     /**
@@ -116,18 +142,18 @@ export const registerRoomEvents = (io, socket) => {
             return;
         }
 
-        const {deleted} = RoomsManager.players.remove(roomId, player);
+        const { deleted } = RoomsManager.players.remove(roomId, player);
         PlayersManager.resetPlayer(data.playerId);
         const win = RoomsManager.checkWin(roomId);
         console.log("Win condition check after player leave:", win);
         if (win !== null) {
-            io.to(roomId).emit("game:ended", {roomId, isImposter: win});
+            io.to(roomId).emit("game:ended", { roomId, isImposter: win });
         }
-        io.to(roomId).emit("player:left", {playerId: player.id});
+        io.to(roomId).emit("player:left", { playerId: player.id });
         PlayersManager.setRoomId(player.id, null);
         socket.leave(roomId);
         if (deleted) {
-            io.emit("room:deleted", {roomId});
+            io.emit("room:deleted", { roomId });
         }
     };
 
@@ -139,18 +165,31 @@ export const registerRoomEvents = (io, socket) => {
         console.log("Game start received:", data);
         const room = RoomsManager.fetchRoom(data.roomId);
         if (!room) {
-            console.error("Room not found or could not start game:", data.roomId);
-            socket.emit('game:notif', {message: "Room not found"});
+            console.error(
+                "Room not found or could not start game:",
+                data.roomId,
+            );
+            socket.emit("game:notif", { message: "Room not found" });
             return;
         }
         console.log("Room data for game start:", room);
         if (Object.values(room.players).length <= 1) {
-            console.error("Not enough players in room, cannot start game:", data.roomId);
-            socket.emit('game:notif', {message: "Need at least 2 players to start the game"});
+            console.error(
+                "Not enough players in room, cannot start game:",
+                data.roomId,
+            );
+            socket.emit("game:notif", {
+                message: "Need at least 2 players to start the game",
+            });
             return;
         }
         RoomsManager.startGame(data.roomId);
         io.to(data.roomId).emit("game:started", data);
+        // Gửi toàn bộ câu hỏi (gồm cả đáp án) cho tất cả người chơi trong room
+        io.to(data.roomId).emit("game:questions", {
+            roomId: data.roomId,
+            questions: room.questions,
+        });
     };
 
     /**
@@ -159,7 +198,10 @@ export const registerRoomEvents = (io, socket) => {
      */
     const sendMessage = (data) => {
         console.log("Send message received:", data);
-        io.to(data.roomId).emit("room:message", {playerId: data.playerId, message: data.message});
+        io.to(data.roomId).emit("room:message", {
+            playerId: data.playerId,
+            message: data.message,
+        });
     };
 
     /**
@@ -175,18 +217,21 @@ export const registerRoomEvents = (io, socket) => {
             const player = PlayersManager.getPlayer(playerId);
             if (player && player.roomId) {
                 const roomId = player.roomId;
-                const {deleted} = RoomsManager.players.remove(roomId, player);
-                socket.to(roomId).emit("player:left", {playerId: player.id});
+                const { deleted } = RoomsManager.players.remove(roomId, player);
+                socket.to(roomId).emit("player:left", { playerId: player.id });
                 PlayersManager.deletePlayer(playerId);
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
                 if (win !== null) {
-                    io.to(roomId).emit("game:ended", {roomId, isImposter: win});
+                    io.to(roomId).emit("game:ended", {
+                        roomId,
+                        isImposter: win,
+                    });
                 }
 
                 if (deleted) {
-                    io.emit("room:deleted", {roomId});
+                    io.emit("room:deleted", { roomId });
                 }
             }
             delete socketToPlayerId[socket.id];
@@ -203,18 +248,21 @@ export const registerRoomEvents = (io, socket) => {
         if (player) {
             const roomId = player.roomId;
             if (roomId) {
-                const {deleted} = RoomsManager.players.remove(roomId, player);
-                socket.to(roomId).emit("player:left", {playerId: player.id});
+                const { deleted } = RoomsManager.players.remove(roomId, player);
+                socket.to(roomId).emit("player:left", { playerId: player.id });
                 PlayersManager.deletePlayer(data.playerId);
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
                 if (win !== null) {
-                    io.to(roomId).emit("game:ended", {roomId, isImposter: win});
+                    io.to(roomId).emit("game:ended", {
+                        roomId,
+                        isImposter: win,
+                    });
                 }
 
                 if (deleted) {
-                    io.emit("room:deleted", {roomId});
+                    io.emit("room:deleted", { roomId });
                 }
             } else {
                 PlayersManager.deletePlayer(data.playerId);

@@ -1,8 +1,11 @@
-import {PlayersManager} from "./players.manager.js";
+import { PlayersManager } from "./players.manager.js";
 
 /**
  * @typedef {import('../types/room.type.js').Player} Player
  * @typedef {import('../types/room.type.js').GameRoom} GameRoom
+ * @typedef {import('../types/room.type.js').PublicGameRoom} PublicGameRoom
+ * @typedef {import('../types/room.type.js').Question} Question
+ * @typedef {import('../types/room.type.js').PublicQuestion} PublicQuestion
  * @typedef {import('../types/room.type.js').MeetingResults} MeetingResults
  * @typedef {import('../types/room.type.js').PlayerState} PlayerState
  * @typedef {(data: {roomId: string}) => void} MeetingEndFunc
@@ -10,7 +13,7 @@ import {PlayersManager} from "./players.manager.js";
 
 /** @type {{[key: string]: GameRoom}} */
 const rooms = {
-    "1": {
+    1: {
         id: "1",
         started: false,
         imposter: null,
@@ -18,20 +21,80 @@ const rooms = {
             id: "host1",
             name: "Host One",
             roomId: "1",
-            state: {x: 0, y: 0, d: 'left', moving: false},
+            state: { x: 0, y: 0, d: "left", moving: false },
             color: "red",
             isImposter: false,
-            isAlive: true
+            isAlive: true,
         },
         players: {},
-        currentMeeting: null
-    }
+        currentMeeting: null,
+        questions: [],
+    },
 };
 
 /** @type {ReturnType<typeof setTimeout> | null} */
 let meetingEndTimeout = null;
 
+/**
+ * Kiểm tra một giá trị có đúng dạng Question từ frontend hay không (roomId được bỏ qua vì sẽ được gán lại).
+ * @param {unknown} q
+ * @returns {boolean}
+ */
+const isValidQuestion = (q) => {
+    if (!q || typeof q !== "object") return false;
+    const o = /** @type {Record<string, unknown>} */ (q);
+
+    const options = o.options;
+    const validOptions =
+        Array.isArray(options) &&
+        (options.every((x) => typeof x === "string") ||
+            options.every((x) => typeof x === "number"));
+
+    return (
+        typeof o.id === "string" &&
+        typeof o.title === "string" &&
+        typeof o.description === "string" &&
+        typeof o.explain === "string" &&
+        (typeof o.answer === "string" || typeof o.answer === "number") &&
+        validOptions
+    );
+};
+
 export const RoomsManager = {
+    /**
+     * Chuẩn hóa danh sách câu hỏi thô từ frontend. Bỏ các câu hỏi không hợp lệ.
+     * @param {string} roomId
+     * @param {unknown} raw
+     * @returns {Question[]}
+     */
+    parseQuestions(roomId, raw) {
+        if (!Array.isArray(raw)) return [];
+        return raw
+            .filter(isValidQuestion)
+            .map((q) => /** @type {Question} */ ({ ...q, roomId }));
+    },
+
+    /**
+     * Trả về room dành cho client: câu hỏi không còn đáp án.
+     * @param {GameRoom|undefined} room
+     * @returns {PublicGameRoom|undefined}
+     */
+    toPublicRoom(room) {
+        if (!room) return undefined;
+        /** @type {PublicQuestion[]} */
+        const questions = room.questions.map(
+            ({ id, roomId, title, description, options, explain }) => ({
+                id,
+                roomId,
+                title,
+                description,
+                options,
+                explain,
+            }),
+        );
+        return { ...room, questions };
+    },
+
     players: {
         /**
          * @param {string} roomId
@@ -53,17 +116,17 @@ export const RoomsManager = {
          */
         remove(roomId, player) {
             const room = rooms[roomId];
-            if (!room) return {deleted: false};
+            if (!room) return { deleted: false };
             delete room.players[player.id];
             const remainingPlayers = Object.values(room.players);
             if (remainingPlayers.length < 1) {
                 delete rooms[roomId];
-                return {deleted: true};
+                return { deleted: true };
             }
             if (room.host.id === player.id) {
                 room.host = remainingPlayers[0];
             }
-            return {deleted: false};
+            return { deleted: false };
         },
 
         /**
@@ -76,7 +139,7 @@ export const RoomsManager = {
             const player = rooms[roomId]?.players[playerId];
             if (!player) return;
             /** @type {PlayerState} */
-            const newState = {...state, moving: state.moving ?? false};
+            const newState = { ...state, moving: state.moving ?? false };
             player.state = newState;
         },
     },
@@ -91,8 +154,16 @@ export const RoomsManager = {
         create(roomId, callerId, endFunc) {
             const room = rooms[roomId];
             if (!room) return;
-            room.currentMeeting = {isActive: true, callerId, votes: {}, endTime: Date.now() + 10000};
-            meetingEndTimeout = setTimeout(() => endFunc({roomId}), 1000 * 60);
+            room.currentMeeting = {
+                isActive: true,
+                callerId,
+                votes: {},
+                endTime: Date.now() + 10000,
+            };
+            meetingEndTimeout = setTimeout(
+                () => endFunc({ roomId }),
+                1000 * 60,
+            );
         },
 
         /**
@@ -102,13 +173,27 @@ export const RoomsManager = {
          * @returns {boolean|null} - true when every alive player has voted, null if no active meeting
          */
         vote(roomId, callerId, votedForId) {
-            console.log("Vote received in room:", rooms[roomId], "from callerId:", callerId, "votedForId:", votedForId); // DEBUG LOG
+            console.log(
+                "Vote received in room:",
+                rooms[roomId],
+                "from callerId:",
+                callerId,
+                "votedForId:",
+                votedForId,
+            ); // DEBUG LOG
             const room = rooms[roomId];
             if (!room || !room.currentMeeting) return null;
             room.currentMeeting.votes[callerId] = votedForId;
-            const alivePlayers = Object.values(room.players).filter(p => p.isAlive);
+            const alivePlayers = Object.values(room.players).filter(
+                (p) => p.isAlive,
+            );
             const votes = Object.values(room.currentMeeting.votes);
-            console.log("Alive players for voting check:", alivePlayers, alivePlayers.length, votes.length); // DEBUG LOG
+            console.log(
+                "Alive players for voting check:",
+                alivePlayers,
+                alivePlayers.length,
+                votes.length,
+            ); // DEBUG LOG
             return votes.length === alivePlayers.length;
         },
 
@@ -135,7 +220,7 @@ export const RoomsManager = {
             let max = 0;
             /** @type {string[]} */
             let winners = [];
-            Object.values(votes).forEach(votedForId => {
+            Object.values(votes).forEach((votedForId) => {
                 if (votedForId == null) return;
                 counts[votedForId] = (counts[votedForId] || 0) + 1;
                 if (counts[votedForId] > max) {
@@ -157,7 +242,7 @@ export const RoomsManager = {
                 }
             }
 
-            meeting.results = {ejectedId, tie, counts, votes};
+            meeting.results = { ejectedId, tie, counts, votes };
             return meeting.results;
         },
     },
@@ -165,12 +250,21 @@ export const RoomsManager = {
     /**
      * @param {string} roomId
      * @param {Player} host
+     * @param {Question[]} [questions=[]]
      * @returns {GameRoom|undefined}
      */
-    createRoom(roomId, host) {
+    createRoom(roomId, host, questions = []) {
         if (rooms[roomId]) return undefined;
 
-        rooms[roomId] = {id: roomId, started: false, imposter: null, host: host, players: {}, currentMeeting: null};
+        rooms[roomId] = {
+            id: roomId,
+            started: false,
+            imposter: null,
+            host: host,
+            players: {},
+            currentMeeting: null,
+            questions: questions,
+        };
         return rooms[roomId];
     },
 
@@ -205,9 +299,14 @@ export const RoomsManager = {
         }
 
         // Reset alive status for all players when starting
-        players.forEach(p => {
+        players.forEach((p) => {
             p.isAlive = true;
-            PlayersManager.updatePlayerState(p.id, {x: 560, y: 150, d: 'left', moving: false});
+            PlayersManager.updatePlayerState(p.id, {
+                x: 560,
+                y: 150,
+                d: "left",
+                moving: false,
+            });
         });
 
         const idx = Math.floor(Math.random() * players.length);
@@ -235,13 +334,18 @@ export const RoomsManager = {
             return null;
         }
 
-        const alivePlayers = players.filter(p => p.isAlive);
-        const aliveImposters = alivePlayers.filter(p => p.id === imposterId);
-        const aliveCrewmates = alivePlayers.filter(p => p.id !== imposterId);
+        const alivePlayers = players.filter((p) => p.isAlive);
+        const aliveImposters = alivePlayers.filter((p) => p.id === imposterId);
+        const aliveCrewmates = alivePlayers.filter((p) => p.id !== imposterId);
 
-        console.log(`Alive Imposters: ${aliveImposters.length}, Alive Crewmates: ${aliveCrewmates.length}`);
+        console.log(
+            `Alive Imposters: ${aliveImposters.length}, Alive Crewmates: ${aliveCrewmates.length}`,
+        );
 
-        if (aliveImposters.length >= aliveCrewmates.length && aliveCrewmates.length > 0) {
+        if (
+            aliveImposters.length >= aliveCrewmates.length &&
+            aliveCrewmates.length > 0
+        ) {
             return true;
         }
 
@@ -254,5 +358,5 @@ export const RoomsManager = {
         }
 
         return null;
-    }
+    },
 };
