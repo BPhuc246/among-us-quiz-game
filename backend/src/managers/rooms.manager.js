@@ -1,135 +1,207 @@
 import {PlayersManager} from "./players.manager.js";
 
 /**
- * @type {{[key: string]: import('../types/room.type.js').GameRoom}}
+ * @typedef {import('../types/room.type.js').Player} Player
+ * @typedef {import('../types/room.type.js').GameRoom} GameRoom
+ * @typedef {import('../types/room.type.js').MeetingResults} MeetingResults
+ * @typedef {import('../types/room.type.js').PlayerState} PlayerState
+ * @typedef {(data: {roomId: string}) => void} MeetingEndFunc
  */
-const rooms = {"1" : {id: "1", started: false, imposter: null, host: {id: "host1", name: "Host One", roomId: "1", state: {x: 0, y: 0, d: 'left'}, color: "red", isImposter: false, isAlive: true}, players: {}, currentMeeting: null}};
+
+/** @type {{[key: string]: GameRoom}} */
+const rooms = {
+    "1": {
+        id: "1",
+        started: false,
+        imposter: null,
+        host: {
+            id: "host1",
+            name: "Host One",
+            roomId: "1",
+            state: {x: 0, y: 0, d: 'left', moving: false},
+            color: "red",
+            isImposter: false,
+            isAlive: true
+        },
+        players: {},
+        currentMeeting: null
+    }
+};
+
+/** @type {ReturnType<typeof setTimeout> | null} */
+let meetingEndTimeout = null;
 
 export const RoomsManager = {
-    players : {
-            /**
-             * @param {string} roomId
-             * @param {import('../types/room.type.js').Player} player
-             */
-            add(roomId, player) {
-                if (!rooms[roomId]) return;
-                player = PlayersManager.setRoomId(player.id, roomId)
-                rooms[roomId].players[player.id] = player;
-                return player;
-            },
-            /**
-             * @param {string} roomId
-             * @param {import('../types/room.type.js').Player} player
-             * @returns {{deleted: boolean}} - returns true if room was deleted due to no players
-             */
-            remove(roomId, player) {
-                if (!rooms[roomId]) return {deleted: false};
-                delete rooms[roomId].players[player.id];
-                const remainingPlayers = Object.values(rooms[roomId].players);
-                if (remainingPlayers.length < 1) {
-                    delete rooms[roomId];
-                    return {deleted: true};
-                }
-                if (rooms[roomId].host.id === player.id) {rooms[roomId].host = remainingPlayers[0];}
-                return {deleted: false};
-            },
-            /**
-             * @param {string} roomId
-             * @param {string} playerId
-             * @param {{x:number,y:number,d:string}} state
-             */
-            updateState(roomId, playerId, state) {
-                if (!rooms[roomId] || !rooms[roomId].players[playerId]) return;
-                rooms[roomId].players[playerId].state = state;
-            },
-    },
-    meetings: {
-        create(roomId, callerId, endFunc) {
-          rooms[roomId].currentMeeting = {isActive: true, callerId, votes: {}, endTime: Date.now() + 10000};
-          this.endTimeout = setTimeout(() => {endFunc({ roomId })}, 1000*60);
-          // console.log("Meeting created in room:", roomId, rooms[roomId].currentMeeting, rooms[roomId]); // DEBUG LOG
+    players: {
+        /**
+         * @param {string} roomId
+         * @param {Player} player
+         * @returns {Player|undefined}
+         */
+        add(roomId, player) {
+            if (!rooms[roomId]) return undefined;
+            const updated = PlayersManager.setRoomId(player.id, roomId);
+            if (!updated) return undefined;
+            rooms[roomId].players[updated.id] = updated;
+            return updated;
         },
+
+        /**
+         * @param {string} roomId
+         * @param {Player} player
+         * @returns {{deleted: boolean}} - deleted is true if the room was removed because it became empty
+         */
+        remove(roomId, player) {
+            const room = rooms[roomId];
+            if (!room) return {deleted: false};
+            delete room.players[player.id];
+            const remainingPlayers = Object.values(room.players);
+            if (remainingPlayers.length < 1) {
+                delete rooms[roomId];
+                return {deleted: true};
+            }
+            if (room.host.id === player.id) {
+                room.host = remainingPlayers[0];
+            }
+            return {deleted: false};
+        },
+
+        /**
+         * @param {string} roomId
+         * @param {string} playerId
+         * @param {{x: number, y: number, d: string, moving?: boolean}} state
+         * @returns {void}
+         */
+        updateState(roomId, playerId, state) {
+            const player = rooms[roomId]?.players[playerId];
+            if (!player) return;
+            /** @type {PlayerState} */
+            const newState = {...state, moving: state.moving ?? false};
+            player.state = newState;
+        },
+    },
+
+    meetings: {
+        /**
+         * @param {string} roomId
+         * @param {string} callerId
+         * @param {MeetingEndFunc} endFunc
+         * @returns {void}
+         */
+        create(roomId, callerId, endFunc) {
+            const room = rooms[roomId];
+            if (!room) return;
+            room.currentMeeting = {isActive: true, callerId, votes: {}, endTime: Date.now() + 10000};
+            meetingEndTimeout = setTimeout(() => endFunc({roomId}), 1000 * 60);
+        },
+
+        /**
+         * @param {string} roomId
+         * @param {string} callerId
+         * @param {string|null} votedForId
+         * @returns {boolean|null} - true when every alive player has voted, null if no active meeting
+         */
         vote(roomId, callerId, votedForId) {
             console.log("Vote received in room:", rooms[roomId], "from callerId:", callerId, "votedForId:", votedForId); // DEBUG LOG
-            if (!rooms[roomId] || !rooms[roomId].currentMeeting) return null;
-            rooms[roomId].currentMeeting.votes[callerId] = votedForId;
-            const alivePlayers = Object.values(rooms[roomId].players).filter(p => p.isAlive);
-            const votes = Object.values(rooms[roomId].currentMeeting.votes);
+            const room = rooms[roomId];
+            if (!room || !room.currentMeeting) return null;
+            room.currentMeeting.votes[callerId] = votedForId;
+            const alivePlayers = Object.values(room.players).filter(p => p.isAlive);
+            const votes = Object.values(room.currentMeeting.votes);
             console.log("Alive players for voting check:", alivePlayers, alivePlayers.length, votes.length); // DEBUG LOG
             return votes.length === alivePlayers.length;
         },
+
+        /**
+         * @param {string} roomId
+         * @returns {MeetingResults|null}
+         */
         end(roomId) {
-            if (!rooms[roomId] || !rooms[roomId].currentMeeting) return null;
-            const meeting = rooms[roomId].currentMeeting;
+            const room = rooms[roomId];
+            if (!room || !room.currentMeeting) return null;
+            const meeting = room.currentMeeting;
             if (!meeting.isActive) return null;
 
-            if (this.endTimeout) {
-                clearTimeout(this.endTimeout);
-                this.endTimeout = null;
+            if (meetingEndTimeout) {
+                clearTimeout(meetingEndTimeout);
+                meetingEndTimeout = null;
             }
 
             meeting.isActive = false;
             const votes = meeting.votes || {};
 
+            /** @type {{[playerId: string]: number}} */
             const counts = {};
             let max = 0;
+            /** @type {string[]} */
             let winners = [];
             Object.values(votes).forEach(votedForId => {
                 if (votedForId == null) return;
                 counts[votedForId] = (counts[votedForId] || 0) + 1;
                 if (counts[votedForId] > max) {
                     max = counts[votedForId];
-                    winners.splice(0, winners.length, votedForId);
+                    winners = [votedForId];
                 } else if (counts[votedForId] === max) {
                     winners.push(votedForId);
                 }
             });
 
+            /** @type {string|null} */
             let ejectedId = null;
             const tie = winners.length !== 1;
-            if (!tie && winners.length === 1) {
+            if (!tie) {
                 ejectedId = winners[0];
-                if (rooms[roomId].players && rooms[roomId].players[ejectedId]) {
-                    rooms[roomId].players[ejectedId].isAlive = false;
+                const ejected = room.players[ejectedId];
+                if (ejected) {
+                    ejected.isAlive = false;
                 }
             }
 
-            meeting.results = { ejectedId, tie, counts, votes };
+            meeting.results = {ejectedId, tie, counts, votes};
             return meeting.results;
         },
     },
+
     /**
      * @param {string} roomId
-     * @param {import('../types/room.type.js').Player} host
+     * @param {Player} host
+     * @returns {GameRoom|undefined}
      */
     createRoom(roomId, host) {
-        if (rooms[roomId]) return
+        if (rooms[roomId]) return undefined;
 
         rooms[roomId] = {id: roomId, started: false, imposter: null, host: host, players: {}, currentMeeting: null};
         return rooms[roomId];
     },
 
+    /**
+     * @returns {GameRoom[]}
+     */
     fetchRooms() {
-        // console.log("Fetching rooms:", rooms);
         return Object.values(rooms);
     },
+
     /**
      * @param {string} roomId
+     * @returns {GameRoom|undefined}
      */
     fetchRoom(roomId) {
         return rooms[roomId];
     },
+
     /**
      * @param {string} roomId
+     * @returns {GameRoom|undefined}
      */
     startGame(roomId) {
-        if (!rooms[roomId]) return;
-        rooms[roomId].started = true;
-        const players = Object.values(rooms[roomId].players);
+        const room = rooms[roomId];
+        if (!room) return undefined;
+        room.started = true;
+        const players = Object.values(room.players);
 
-        if (!players || players.length === 0) {
-            rooms[roomId].imposter = null;
-            return;
+        if (players.length === 0) {
+            room.imposter = null;
+            return undefined;
         }
 
         // Reset alive status for all players when starting
@@ -138,12 +210,16 @@ export const RoomsManager = {
             PlayersManager.updatePlayerState(p.id, {x: 560, y: 150, d: 'left', moving: false});
         });
 
-
         const idx = Math.floor(Math.random() * players.length);
-        rooms[roomId].imposter = players[idx].id;
-        return rooms[roomId];
+        room.imposter = players[idx].id;
+        return room;
         // TODO filter imposter before sending room
     },
+
+    /**
+     * @param {string} roomId
+     * @returns {boolean|null} - true if imposters won, false if crewmates won, null if game continues
+     */
     checkWin(roomId) {
         const room = rooms[roomId];
         console.log("Checking win for room:", roomId, room);
@@ -179,4 +255,4 @@ export const RoomsManager = {
 
         return null;
     }
-}
+};
