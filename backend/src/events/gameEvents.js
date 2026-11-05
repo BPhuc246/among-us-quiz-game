@@ -1,5 +1,5 @@
-import {RoomsManager} from "../managers/rooms.manager.js";
-import {PlayersManager} from "../managers/players.manager.js";
+import { RoomsManager } from "../managers/rooms.manager.js";
+import { PlayersManager } from "../managers/players.manager.js";
 
 /**
  * @typedef {import('../types/room.type.js').MeetingResults} MeetingResults
@@ -22,7 +22,7 @@ import {PlayersManager} from "../managers/players.manager.js";
  */
 
 /**
- * @typedef {{roomId: string, playerId: string}} PlayerKillData
+ * @typedef {{roomId: string, playerId: string, killerId: string}} PlayerKillData
  */
 
 /**
@@ -52,6 +52,11 @@ export const registerGameEvents = (io, socket) => {
     //     socket.to(data.roomId).emit("player:joined", data);
     // }
 
+    const KILL_COOLDOWN_MS = 25000; // 20 giây, phải khớp với frontend
+
+    /** key: `${roomId}:${killerId}` -> thời điểm kill hợp lệ gần nhất */
+    const lastKillAt = new Map();
+
     // ====== PLAYER EVENTS ======
 
     /**
@@ -63,8 +68,17 @@ export const registerGameEvents = (io, socket) => {
         const playerId = data.id ?? data.playerId;
         if (!data.roomId || !playerId) return;
 
-        RoomsManager.players.updateState(data.roomId, playerId, {x: data.x, y: data.y, d: data.d});
-        PlayersManager.updatePlayerState(playerId, {x: data.x, y: data.y, d: data.d, moving: data.moving});
+        RoomsManager.players.updateState(data.roomId, playerId, {
+            x: data.x,
+            y: data.y,
+            d: data.d,
+        });
+        PlayersManager.updatePlayerState(playerId, {
+            x: data.x,
+            y: data.y,
+            d: data.d,
+            moving: data.moving,
+        });
         io.to(data.roomId).emit("player:moved", data);
     };
 
@@ -82,15 +96,41 @@ export const registerGameEvents = (io, socket) => {
      */
     const playerKill = (data) => {
         console.log("Player kill received:", data);
-        const roomId = data.roomId;
+        const { roomId, playerId, killerId } = data;
+
+        const reject = (reason = "", remainingMs = 0) => {
+            console.log(`Player kill rejected (${reason}):`, data);
+            socket.emit("player:kill:rejected", {
+                reason,
+                remainingMs,
+                playerId,
+            });
+        };
+
         const room = RoomsManager.fetchRoom(roomId);
-        if (room && room.players[data.playerId]) {
-            room.players[data.playerId].isAlive = false;
-        }
-        io.to(data.roomId).emit("player:killed", data);
+        if (!room) return reject("ROOM_NOT_FOUND");
+
+        const killer = room.players[killerId];
+        const victim = room.players[playerId];
+
+        if (!killer || killer.isAlive === false) return reject("KILLER_DEAD");
+        if (!victim || victim.isAlive === false) return reject("VICTIM_DEAD");
+        if (playerId === killerId) return reject("SELF_KILL");
+
+        const key = `${roomId}:${killerId}`;
+        const now = Date.now();
+        const remainingMs =
+            KILL_COOLDOWN_MS - (now - (lastKillAt.get(key) ?? 0));
+        if (remainingMs > 0) return reject("COOLDOWN", remainingMs);
+
+        lastKillAt.set(key, now);
+        victim.isAlive = false;
+
+        io.to(roomId).emit("player:killed", data);
+
         const win = RoomsManager.checkWin(roomId);
         if (win !== null) {
-            io.to(roomId).emit("game:ended", {roomId, isImposter: win});
+            io.to(roomId).emit("game:ended", { roomId, isImposter: win });
         }
     };
 
@@ -119,7 +159,7 @@ export const registerGameEvents = (io, socket) => {
         const win = RoomsManager.checkWin(roomId);
         console.log("Win condition check after meeting:", win);
         if (win !== null) {
-            io.to(roomId).emit("game:ended", {roomId, isImposter: win});
+            io.to(roomId).emit("game:ended", { roomId, isImposter: win });
         }
     };
 
@@ -129,12 +169,16 @@ export const registerGameEvents = (io, socket) => {
      */
     const meetingVote = (data) => {
         console.log("Recieved meeting vote", data);
-        const allVoted = RoomsManager.meetings.vote(data.roomId, data.callerId, data.votedForId);
+        const allVoted = RoomsManager.meetings.vote(
+            data.roomId,
+            data.callerId,
+            data.votedForId,
+        );
         io.to(data.roomId).emit("meeting:voted", data);
 
         if (allVoted) {
-            console.log('All players voted, ending meeting early');
-            meetingEnd({roomId: data.roomId});
+            console.log("All players voted, ending meeting early");
+            meetingEnd({ roomId: data.roomId });
         }
     };
 
