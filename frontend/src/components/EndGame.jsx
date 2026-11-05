@@ -14,6 +14,7 @@ export default function EndGame({ result, onBackToMenu, isLocalPlayerImposter })
                     <p className={styles.winnerMessage}>
                         {isImposterWin ? 'Imposters Won' : 'Crewmates Won'}
                     </p>
+                    {result?.reason === 'tasks' && <p>Cả đội đã hoàn thành tất cả nhiệm vụ câu hỏi!</p>}
                 </div>
 
                 <div className={styles.characterContainer}>
