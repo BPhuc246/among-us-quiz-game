@@ -1,102 +1,153 @@
-import { EventBus } from "../EventBus.js";
+export const KILL_ZONE_RADIUS = 60;     // px
+export const KILL_COOLDOWN_MS = 20000;  // 20 giây, phải khớp với backend
+const KILL_PENDING_TIMEOUT_MS = 3000;
 
 /**
- * Initialize imposter-specific UI and mechanics
- * Sets up kill button and detection zone for the imposter
+ * Khởi tạo UI và logic kill cho imposter
  */
 export function handleImposter(scene) {
-    console.log("Ran handleImposter with", scene.imposter, scene.player);
     if (!scene.imposter || !scene.player) return;
 
-    console.log("Setting up imposter", scene.player, scene.imposter);
+    scene.closest = { player: null };
+    scene.killPending = false;
+    scene.killCooldownUntil = 0;
 
-    const KILL_ZONE_RADIUS = 60; // pixels
-
-    // Kill button click handler
-    const handleKill = () => {
-        const victim = scene.closest && scene.closest.player;
-        if (!victim) return;
-
-        // Send kill event to server with victim and killer data
-        const payload = {
-            playerId: victim.id,           // victim id
-            killerId: scene.playerObj?.id,  // killer id
-            roomId: scene.playerObj.roomId,
-            x: victim.x,
-            y: victim.y,
-            color: scene.playerObj.color
-        };
-        console.log('Emitting player:kill', payload);
-        scene.socket.emit('player:kill', payload);
-
-        scene.player.x = victim.x;
-        scene.player.y = victim.y;
-
-        // Reset closest player tracking
-        scene.closest = { player: null, distance: KILL_ZONE_RADIUS };
-    };
-
-    // Create kill button UI
+    // Nút kill
     scene.killBtn = scene.add.image(820, 410, 'kill')
         .setScale(0.7)
         .setDepth(1000)
         .setScrollFactor(0)
         .setInteractive()
-        .on('pointerdown', handleKill);
+        .on('pointerdown', () => tryKill(scene));
     scene.ui.add(scene.killBtn);
-    console.log("Kill button created", scene.killBtn);
 
-    // Create invisible detection zone around imposter
-    scene.zone = scene.physics.add.sprite(scene.player.x, scene.player.y, 100, 100);
-    if (scene.zone.body) {
-        scene.zone.body.setCircle(KILL_ZONE_RADIUS);
-        scene.zone.body.setAllowGravity(false);
-        scene.zone.visible = false;
-    }
-}
+    // Hiển thị thời gian cooldown còn lại
+    scene.killCooldownText = scene.add.text(820, 460, '', {
+        fontFamily: 'Arial Black',
+        fontSize: 20,
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 4
+    }).setOrigin(0.5).setDepth(1001).setScrollFactor(0);
+    scene.ui.add(scene.killCooldownText);
 
-export function handleImposterMovement(scene) {
-    // Update imposter kill zone if player is imposter
-    if (scene.imposter && scene.zone && scene.player) {
-        scene.zone.setPosition(scene.player.x, scene.player.y);
-        handleNearestPlayer(scene);
-    }
+    // Lắng nghe kết quả kill từ server
+    scene.onKillConfirmed = (data) => {
+        if (String(data.killerId) !== String(scene.playerObj?.id)) return;
+        scene.killPending = false;
+        startCooldown(scene, KILL_COOLDOWN_MS);
+    };
 
-    // Update kill button visual state based on whether a target is in range
-    if (scene.killBtn) {
-        if (!scene.closest.player && scene.killBtn.pipeline?.name !== 'GrayScale') {
-            scene.killBtn.setPipeline('GrayScale');
-        } else if (scene.closest.player && scene.killBtn.pipeline?.name === 'GrayScale') {
-            scene.killBtn.resetPipeline();
+    scene.onKillRejected = (data) => {
+        scene.killPending = false;
+        if (data?.reason === 'COOLDOWN' && data.remainingMs > 0) {
+            startCooldown(scene, data.remainingMs);
         }
-    }
+    };
+
+    scene.socket.on('player:killed', scene.onKillConfirmed);
+    scene.socket.on('player:kill:rejected', scene.onKillRejected);
 }
 
 /**
- * Track the nearest player within kill range for the imposter
- * Updates scene.closest with the nearest valid target
+ * Gỡ listener khi scene shutdown
  */
-export function handleNearestPlayer(scene) {
-    const KILL_ZONE_RADIUS = 60; // pixels
+export function cleanupImposter(scene) {
+    if (scene.socket) {
+        if (scene.onKillConfirmed) scene.socket.off('player:killed', scene.onKillConfirmed);
+        if (scene.onKillRejected) scene.socket.off('player:kill:rejected', scene.onKillRejected);
+    }
+    scene.onKillConfirmed = null;
+    scene.onKillRejected = null;
+}
 
-    Object.values(scene.players).forEach(p => {
-        const dist = Phaser.Math.Distance.Between(scene.zone.x, scene.zone.y, p.x, p.y);
+/**
+ * Gọi mỗi frame: cập nhật target gần nhất và trạng thái nút
+ */
+export function handleImposterMovement(scene) {
+    if (!scene.imposter || !scene.killBtn || !scene.player) return;
 
-        // Player moved out of range
-        if (dist > KILL_ZONE_RADIUS) {
-            if (p === scene.closest.player) {
-                scene.closest = { player: null, distance: KILL_ZONE_RADIUS };
-                console.log("No closest player");
-            }
-            return;
-        }
+    const target = findNearestTarget(scene);
+    scene.closest = { player: target };
 
-        // Found closer player (excluding self)
-        if (dist < scene.closest.distance && p !== scene.player) {
-            if (scene.closest.player !== p) {
-                console.log("New closest player:", scene.closest);
-            }
-            scene.closest = { player: p, distance: dist };
+    const ready = !!target && !isOnCooldown(scene) && !scene.killPending;
+    const isGray = scene.killBtn.pipeline?.name === 'GrayScale';
+
+    if (ready && isGray) {
+        scene.killBtn.resetPipeline();
+    } else if (!ready && !isGray) {
+        scene.killBtn.setPipeline('GrayScale');
+    }
+
+    updateCooldownText(scene);
+}
+
+/**
+ * Trả về người chơi còn sống gần nhất trong tầm kill, hoặc null
+ */
+export function findNearestTarget(scene) {
+    if (!scene.player) return null;
+
+    let best = null;
+    let bestDist = Infinity;
+
+    Object.values(scene.players).forEach((p) => {
+        if (!isKillable(scene, p)) return;
+
+        const dist = Phaser.Math.Distance.Between(scene.player.x, scene.player.y, p.x, p.y);
+        if (dist <= KILL_ZONE_RADIUS && dist < bestDist) {
+            best = p;
+            bestDist = dist;
         }
     });
+
+    return best;
+}
+
+function isKillable(scene, p) {
+    if (!p || p === scene.player) return false;   // không tự kill mình
+    if (p.alive === false) return false;          // đã chết
+    if (!p.scene) return false;                   // sprite đã bị destroy
+    return true;
+}
+
+function tryKill(scene) {
+    if (!scene.imposter || !scene.killBtn) return;
+    if (scene.killPending || isOnCooldown(scene)) return;
+
+    const target = findNearestTarget(scene);
+    if (!target) return;
+
+    scene.killPending = true;
+    // Phòng trường hợp server không phản hồi
+    scene.time.delayedCall(KILL_PENDING_TIMEOUT_MS, () => {
+        scene.killPending = false;
+    });
+
+    scene.socket.emit('player:kill', {
+        playerId: target.id,
+        killerId: scene.playerObj.id,
+        roomId: scene.room.id,
+        x: target.x,
+        y: target.y,
+        color: scene.playerObj.color
+    });
+    // Không teleport cục bộ: server sẽ gửi player:killed để mọi client (kể cả killer) cập nhật vị trí
+}
+
+function isOnCooldown(scene) {
+    return scene.time.now < scene.killCooldownUntil;
+}
+
+function startCooldown(scene, ms) {
+    scene.killCooldownUntil = scene.time.now + ms;
+}
+
+function updateCooldownText(scene) {
+    if (!scene.killCooldownText) return;
+    const remaining = scene.killCooldownUntil - scene.time.now;
+    const text = remaining > 0 ? `${Math.ceil(remaining / 1000)}s` : '';
+    if (scene.killCooldownText.text !== text) {
+        scene.killCooldownText.setText(text);
+    }
 }
