@@ -4,6 +4,7 @@ import apiRouter from "./routes/api.js";
 import cors from "cors";
 import { registerRoomEvents } from "./events/roomEvents.js";
 import { registerGameEvents } from "./events/gameEvents.js";
+import { registerTaskEvents } from "./events/taskEvents.js";
 import "dotenv/config";
 import http from "http";
 
@@ -88,6 +89,7 @@ io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
     registerRoomEvents(io, socket);
     registerGameEvents(io, socket);
+    registerTaskEvents(io, socket);
 });
 
 server.listen(PORT, () => {
