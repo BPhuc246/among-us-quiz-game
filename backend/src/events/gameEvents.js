@@ -70,6 +70,8 @@ export const registerGameEvents = (io, socket) => {
         // Frontend emits `id`; accept either id or playerId
         const playerId = data.id ?? data.playerId;
         if (!data.roomId || !playerId) return;
+        if (socket.data.playerId !== playerId || !socket.rooms.has(data.roomId)) return;
+        if (!Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
 
         RoomsManager.players.updateState(data.roomId, playerId, {
             x: data.x,
@@ -153,6 +155,7 @@ export const registerGameEvents = (io, socket) => {
 
         const win = RoomsManager.checkWin(roomId);
         if (win !== null) {
+            room.started = false;
             io.to(roomId).emit("game:ended", { roomId, isImposter: win });
         }
     };
@@ -182,6 +185,7 @@ export const registerGameEvents = (io, socket) => {
         const win = RoomsManager.checkWin(roomId);
         console.log("Win condition check after meeting:", win);
         if (win !== null) {
+            RoomsManager.fetchRoom(roomId).started = false;
             io.to(roomId).emit("game:ended", { roomId, isImposter: win });
         }
     };

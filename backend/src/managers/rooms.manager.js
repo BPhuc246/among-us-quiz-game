@@ -1,4 +1,5 @@
 import { PlayersManager } from "./players.manager.js";
+import { TasksManager } from "./tasks.manager.js";
 
 /**
  * @typedef {import('../types/room.type.js').Player} Player
@@ -47,16 +48,19 @@ const isValidQuestion = (q) => {
     const options = o.options;
     const validOptions =
         Array.isArray(options) &&
+        options.length >= 2 &&
+        new Set(options).size === options.length &&
         (options.every((x) => typeof x === "string") ||
             options.every((x) => typeof x === "number"));
 
     return (
         typeof o.id === "string" &&
+        o.id.trim().length > 0 &&
         typeof o.title === "string" &&
         typeof o.description === "string" &&
         typeof o.explain === "string" &&
         (typeof o.answer === "string" || typeof o.answer === "number") &&
-        validOptions
+        validOptions && options.includes(o.answer)
     );
 };
 
@@ -69,8 +73,14 @@ export const RoomsManager = {
      */
     parseQuestions(roomId, raw) {
         if (!Array.isArray(raw)) return [];
+        const seen = new Set();
         return raw
             .filter(isValidQuestion)
+            .filter((q) => {
+                if (seen.has(q.id)) return false;
+                seen.add(q.id);
+                return true;
+            })
             .map((q) => /** @type {Question} */ ({ ...q, roomId }));
     },
 
@@ -92,7 +102,8 @@ export const RoomsManager = {
                 explain,
             }),
         );
-        return { ...room, questions };
+        const { taskCompletions, taskAssignments, ...publicRoom } = room;
+        return { ...publicRoom, questions };
     },
 
     players: {
@@ -311,6 +322,7 @@ export const RoomsManager = {
 
         const idx = Math.floor(Math.random() * players.length);
         room.imposter = players[idx].id;
+        TasksManager.initialize(room);
         return room;
         // TODO filter imposter before sending room
     },
@@ -337,6 +349,8 @@ export const RoomsManager = {
         const alivePlayers = players.filter((p) => p.isAlive);
         const aliveImposters = alivePlayers.filter((p) => p.id === imposterId);
         const aliveCrewmates = alivePlayers.filter((p) => p.id !== imposterId);
+        const progress = TasksManager.progress(room);
+        if (progress.total > 0 && progress.completed === progress.total) return false;
 
         console.log(
             `Alive Imposters: ${aliveImposters.length}, Alive Crewmates: ${aliveCrewmates.length}`,

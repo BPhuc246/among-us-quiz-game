@@ -60,7 +60,9 @@
  *   host: Player,
  *   players: {[key: string]: Player},
  *   currentMeeting: MeetingState | null,
- *   questions: Question[]
+ *   questions: Question[],
+ *   taskCompletions?: {[playerId: string]: string[]},
+ *   taskAssignments?: {[playerId: string]: string[]}
  * }} GameRoom
  */
 
