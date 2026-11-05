@@ -68,11 +68,7 @@ export function disableVisionSystem(scene) {
     });
 
     // Show all dead bodies
-    scene.children.list.forEach(child => {
-        if (child.texture && child.texture.key === 'deadBody') {
-            child.visible = true;
-        }
-    });
+    for (const body of scene.deadBodies?.values() || []) body.visible = true;
 }
 
 /**
@@ -136,16 +132,5 @@ export function updateVisionSystem(scene) {
         player.visible = dist <= scene.VISION_RADIUS;
     });
 
-    // Hide dead bodies outside vision radius
-    scene.children.list.forEach(child => {
-        if (child.texture && child.texture.key === 'deadBody') {
-            const dist = Phaser.Math.Distance.Between(
-                scene.player.x,
-                scene.player.y,
-                child.x,
-                child.y
-            );
-            child.visible = dist <= scene.VISION_RADIUS;
-        }
-    });
+    // Corpse visibility follows the same radius in updateBodyReporting.
 }

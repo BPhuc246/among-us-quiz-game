@@ -4,6 +4,7 @@ import { socketService } from "../../services/socket.js";
 import { setPlayerColor } from "../utils/playerFactory.js";
 import { EventBus } from "../EventBus.js";
 import { setupQuizTasks, updateQuizTasks, cleanupQuizTasks } from "../utils/quizTasks.js";
+import { addDeadBody, clearDeadBodies, setupBodyReporting, updateBodyReporting, cleanupBodyReporting } from "../utils/bodyReporting.js";
 import {
     handleImposter,
     handleImposterMovement,
@@ -81,7 +82,7 @@ export class Game extends BaseGameScene {
             "assets/death/texture.png",
             "assets/death/texture.json",
         );
-        this.load.image("deadBody", "assets/sprites/Base/Dead0042.png");
+        this.load.image("report", "assets/icons/reportBtn.png");
         this.load.image("meeting", "/assets/icons/useIcon.png");
     }
 
@@ -91,6 +92,7 @@ export class Game extends BaseGameScene {
     create() {
         // stored promise for imposter role assignment
         const prom1 = this.createCommon();
+        this.deadBodies = new Map();
         this.socket = socketService.getSocket();
         this.input.on("pointerdown", (pointer) => {
             console.log(
@@ -136,6 +138,8 @@ export class Game extends BaseGameScene {
             this.setupMeetingZone();
             this.isInMeetingZone = false;
             setupQuizTasks(this);
+            setupBodyReporting(this);
+            for (const body of Object.values(this.room.deadBodies || {})) addDeadBody(this, body, setPlayerColor);
         });
     }
 
@@ -149,6 +153,7 @@ export class Game extends BaseGameScene {
 
         this.handleMovement();
         updateQuizTasks(this);
+        updateBodyReporting(this);
         handleImposterMovement(this);
 
         // Update vision system
@@ -171,6 +176,7 @@ export class Game extends BaseGameScene {
      * Clean up scene resources and event listeners
      */
     shutdown() {
+        cleanupBodyReporting(this);
         cleanupQuizTasks(this);
         cleanupImposter(this);
         if (this.socket) {
@@ -193,11 +199,12 @@ export class Game extends BaseGameScene {
      * Create death animation for killed players
      */
     createAnimations() {
+        if (this.anims.exists("deathAnim")) return;
         this.anims.create({
             key: "deathAnim",
             frames: this.anims.generateFrameNames("death", {
                 prefix: "Dead",
-                start: 0,
+                start: 1,
                 end: 42,
                 zeroPad: 4,
             }),
@@ -253,24 +260,15 @@ export class Game extends BaseGameScene {
                 delete this.players[targetId];
             }
 
-            const deathAnim = this.add
-                .sprite(data.x, data.y, "death", "Dead0001.png")
-                .setScale(0.125)
-                .setDepth(600);
-            setPlayerColor(this, deathAnim, data.color);
-            deathAnim.anims.play("deathAnim");
-            deathAnim.on("animationcomplete", () => {
-                this.add
-                    .sprite(deathAnim.x, deathAnim.y, "deadBody")
-                    .setScale(0.125)
-                    .setDepth(500);
-                deathAnim.destroy();
-            });
+            if (this.room?.players[targetId]) this.room.players[targetId].isAlive = false;
+            addDeadBody(this, data, setPlayerColor);
         };
 
         this.onMeetingStarted = (data) => {
             console.log("Meeting started event received:", data);
             this.meetingActive = true;
+            this.reportBtn?.setVisible(false);
+            this.room.players = data.players || this.room.players;
             this.physics.pause(); // Pause physics
             disableVisionSystem(this);
             console.log(
@@ -289,6 +287,8 @@ export class Game extends BaseGameScene {
         this.onMeetingEnded = (data) => {
             console.log("Meeting ended event received:", data);
             this.meetingActive = false;
+            clearDeadBodies(this);
+            this.room.deadBodies = {};
             this.physics.resume();
             enableVisionSystem(this);
             this.teleportPlayersToSpawn();

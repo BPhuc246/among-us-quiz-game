@@ -62,7 +62,8 @@
  *   currentMeeting: MeetingState | null,
  *   questions: Question[],
  *   taskCompletions?: {[playerId: string]: string[]},
- *   taskAssignments?: {[playerId: string]: string[]}
+ *   taskAssignments?: {[playerId: string]: string[]},
+ *   deadBodies?: {[playerId: string]: {playerId: string, x: number, y: number, color: string}}
  * }} GameRoom
  */
 
