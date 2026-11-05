@@ -152,6 +152,7 @@ export const registerRoomEvents = (io, socket) => {
         io.to(roomId).emit("player:left", { playerId: player.id });
         PlayersManager.setRoomId(player.id, null);
         socket.leave(roomId);
+        socket.leave(`${roomId}:spectators`);
         if (deleted) {
             io.emit("room:deleted", { roomId });
         }
@@ -183,6 +184,8 @@ export const registerRoomEvents = (io, socket) => {
             });
             return;
         }
+        // Xóa spectator của ván trước, ván mới ai cũng sống
+        io.socketsLeave(`${data.roomId}:spectators`);
         RoomsManager.startGame(data.roomId);
         io.to(data.roomId).emit("game:started", data);
         // Gửi toàn bộ câu hỏi (gồm cả đáp án) cho tất cả người chơi trong room

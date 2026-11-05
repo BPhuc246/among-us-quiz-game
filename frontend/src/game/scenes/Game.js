@@ -73,6 +73,7 @@ export class Game extends BaseGameScene {
     preload() {
         this.preloadCommon();
         this.preloadMap();
+        this.preloadGhostAssets();
         this.load.image("kill", "assets/icons/kill_icon.png");
         this.load.atlas(
             "death",
@@ -147,7 +148,7 @@ export class Game extends BaseGameScene {
         handleImposterMovement(this);
 
         // Update vision system
-        if (this.visionEnabled && this.player) {
+        if (this.visionEnabled && this.player && !this.isGhost) {
             updateVisionSystem(this);
         }
 
@@ -172,16 +173,37 @@ export class Game extends BaseGameScene {
                 this.socket.off("player:killed", this.onPlayerKilled);
                 this.onPlayerKilled = null;
             }
-            if (this.onMeetingStarted) {
-                this.socket.off("meeting:started", this.onMeetingStarted);
-                this.onMeetingStarted = null;
-            }
-            if (this.onMeetingEnded) {
-                this.socket.off("meeting:ended", this.onMeetingEnded);
-                this.onMeetingEnded = null;
-            }
+            this.onMeetingStarted = (data) => {
+                console.log("Meeting started event received:", data);
+                this.meetingActive = true;
+                this.physics.pause();
+                disableVisionSystem(this);
+
+                // Ghost: làm mờ màn hình, không cho tương tác
+                // if (this.isGhost) this.showGhostMeetingOverlay();
+
+                EventBus.emit("meeting:started", {
+                    roomId: this.room.id,
+                    callerId: data.callerId,
+                    players: this.room.players,
+                    isGhost: !!this.isGhost,
+                });
+            };
+
+            this.onMeetingEnded = (data) => {
+                console.log("Meeting ended event received:", data);
+                this.meetingActive = false;
+                // this.hideGhostMeetingOverlay();
+                this.physics.resume();
+                enableVisionSystem(this);
+                this.teleportPlayersToSpawn();
+
+                EventBus.emit("meeting:ended", {
+                    results: data.results,
+                });
+            };
             if (this.onGameEnd) {
-                this.socket.off("game:end", this.onGameEnd);
+                this.socket.off("game:ended", this.onGameEnd);
                 this.onGameEnd = null;
             }
         }
@@ -218,27 +240,39 @@ export class Game extends BaseGameScene {
 
             const targetId = String(data.playerId);
             const localId = String(this.playerObj?.id ?? this.player?.id);
-
-            const killedPlayer =
-                targetId === localId ? this.player : this.players[targetId];
+            const isLocalTarget = targetId === localId;
+            const killedSprite = isLocalTarget
+                ? this.player
+                : this.players[targetId];
 
             // Kẻ giết dịch chuyển đến xác nạn nhân (mọi client đều đồng bộ qua đây)
             if (data.killerId) {
                 const killerId = String(data.killerId);
                 const killerSprite =
                     killerId === localId ? this.player : this.players[killerId];
-                if (killerSprite && killerSprite !== killedPlayer) {
+                if (killerSprite && killerSprite !== killedSprite) {
                     killerSprite.x = data.x;
                     killerSprite.y = data.y;
                 }
             }
 
-            if (killedPlayer) {
-                killedPlayer.alive = false;
-                if (killedPlayer.destroy) killedPlayer.destroy();
+            if (isLocalTarget) {
+                // Mình bị giết: hiện ô đỏ rồi chuyển sang ghost, không destroy sprite
+                this.enterGhostMode();
+                disableVisionSystem(this);
+            } else if (this.isGhost) {
+                // Mình đã chết: vẫn thấy người chết khác dưới dạng ghost
+                const sprite = this.players[targetId];
+                delete this.players[targetId];
+                if (sprite) {
+                    this.makeGhost(sprite);
+                    this.ghosts[targetId] = sprite;
+                }
+            } else {
+                // Người còn sống: người bị giết biến mất hoàn toàn
+                if (killedSprite) killedSprite.destroy();
+                delete this.players[targetId];
             }
-            // Xóa khỏi danh sách để không bao giờ được chọn làm target nữa
-            delete this.players[targetId];
 
             const deathAnim = this.add
                 .sprite(data.x, data.y, "death", "Dead0001.png")
@@ -285,6 +319,7 @@ export class Game extends BaseGameScene {
                 results: data.results,
             });
         };
+
         this.onGameEnd = (data) => {
             console.log("game end event received:", data);
             EventBus.emit("game:ended", data);
@@ -303,11 +338,39 @@ export class Game extends BaseGameScene {
         this.socket.on("game:ended", this.onGameEnd);
     }
 
+    /**
+     * Lớp phủ tối lên màn hình khi ghost đang họp
+     */
+    showGhostMeetingOverlay() {
+        // this.hideGhostMeetingOverlay();
+        const overlay = this.add
+            .rectangle(
+                this.scale.width / 2,
+                this.scale.height / 2,
+                this.scale.width,
+                this.scale.height,
+                0x000000,
+                0.6,
+            )
+            .setScrollFactor(0)
+            .setDepth(1200);
+        this.ui.add(overlay);
+        this.ghostMeetingOverlay = overlay;
+    }
+
+    hideGhostMeetingOverlay() {
+        if (this.ghostMeetingOverlay) {
+            this.ghostMeetingOverlay.destroy();
+            this.ghostMeetingOverlay = null;
+        }
+    }
+
     // MEETING MECHANICS
     /**
      * Start a meeting (called when M key is pressed)
      */
     startMeeting() {
+        if (this.isGhost) return; // Ghost không được gọi họp
         if (!this.socket || !this.playerObj || !this.room) return;
 
         console.log("Starting meeting...");
@@ -321,8 +384,12 @@ export class Game extends BaseGameScene {
      * Teleport all players back to their spawn positions
      */
     teleportPlayersToSpawn() {
-        // Teleport local player
-        if (this.player && this.spawnPositions[this.playerObj.id]) {
+        // Teleport local player (ghost không bị teleport)
+        if (
+            this.player &&
+            !this.isGhost &&
+            this.spawnPositions[this.playerObj.id]
+        ) {
             const spawn = this.spawnPositions[this.playerObj.id];
             this.player.x = spawn.x;
             this.player.y = spawn.y;

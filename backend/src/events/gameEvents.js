@@ -37,6 +37,9 @@ import { PlayersManager } from "../managers/players.manager.js";
  * @typedef {{roomId: string, callerId: string, votedForId: string|null}} MeetingVoteData
  */
 
+/** Room phụ chỉ chứa người đã chết (spectator). Phải khớp với roomEvents.js */
+const spectatorRoomOf = (roomId = "") => `${roomId}:spectators`;
+
 /**
  * @param {import('socket.io').Server} io
  * @param {import('socket.io').Socket} socket
@@ -79,6 +82,14 @@ export const registerGameEvents = (io, socket) => {
             d: data.d,
             moving: data.moving,
         });
+
+        const victim = RoomsManager.fetchRoom(data.roomId)?.players[playerId];
+        if (victim && victim.isAlive === false) {
+            // Người đã chết: chỉ gửi cho spectator, người còn sống không thấy
+            io.to(spectatorRoomOf(data.roomId)).emit("player:moved", data);
+            return;
+        }
+
         io.to(data.roomId).emit("player:moved", data);
     };
 
@@ -88,6 +99,18 @@ export const registerGameEvents = (io, socket) => {
      */
     const playerAnim = (data) => {
         io.to(data.roomId).emit("player:animation", data);
+    };
+
+    /**
+     * Client đã chết gọi sau khi nhận player:killed để vào room spectator.
+     * @param {{roomId: string, playerId: string}} data
+     * @returns {void}
+     */
+    const playerSpectate = (data) => {
+        const room = RoomsManager.fetchRoom(data.roomId);
+        const player = room?.players[data.playerId];
+        if (!player || player.isAlive !== false) return;
+        socket.join(spectatorRoomOf(data.roomId));
     };
 
     /**
@@ -169,6 +192,31 @@ export const registerGameEvents = (io, socket) => {
      */
     const meetingVote = (data) => {
         console.log("Recieved meeting vote", data);
+        const room = RoomsManager.fetchRoom(data.roomId);
+
+        if (!room?.currentMeeting?.isActive) {
+            socket.emit("meeting:vote:rejected", {
+                reason: "NO_ACTIVE_MEETING",
+            });
+            return;
+        }
+
+        // Người đã chết không được bỏ phiếu
+        const voter = room.players[data.callerId];
+        if (!voter || voter.isAlive === false) {
+            socket.emit("meeting:vote:rejected", { reason: "VOTER_DEAD" });
+            return;
+        }
+
+        // Không được vote cho người đã chết (null = bỏ qua)
+        if (data.votedForId != null) {
+            const target = room.players[data.votedForId];
+            if (!target || target.isAlive === false) {
+                socket.emit("meeting:vote:rejected", { reason: "TARGET_DEAD" });
+                return;
+            }
+        }
+
         const allVoted = RoomsManager.meetings.vote(
             data.roomId,
             data.callerId,
@@ -186,6 +234,7 @@ export const registerGameEvents = (io, socket) => {
     socket.on("player:move", playerMove);
     socket.on("player:animation", playerAnim);
     socket.on("player:kill", playerKill);
+    socket.on("player:spectate", playerSpectate);
     socket.on("meeting:start", meetingStart);
     socket.on("meeting:end", meetingEnd);
     socket.on("meeting:vote", meetingVote);
