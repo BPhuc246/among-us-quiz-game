@@ -1,26 +1,54 @@
 // backend/src/types/room.type.js
 
 /**
- * @typedef {{x:number, y:number, d:string, moving: boolean}} PlayerState
+ * @typedef {{x:number, y:number, d:string, moving:boolean}} PlayerState
  */
 
 /**
  * @typedef {{
  *   id: string,
  *   name: string,
- *   roomId: string,
+ *   roomId: string|null,
  *   state: PlayerState,
  *   color: string,
  *   isImposter: boolean,
  *   isAlive: boolean
  * }} Player
  */
+
+/**
+ * @typedef {{
+ *   id: string,
+ *   roomId: string,
+ *   title: string,
+ *   description: string,
+ *   options: string[] | number[],
+ *   answer: string | number,
+ *   explain: string
+ * }} Question
+ */
+
+/**
+ * Question gửi tới client, đã loại bỏ đáp án.
+ * @typedef {Omit<Question, 'answer'>} PublicQuestion
+ */
+
+/**
+ * @typedef {{
+ *   ejectedId: string|null,
+ *   tie: boolean,
+ *   counts: {[playerId: string]: number},
+ *   votes: {[playerId: string]: string|null}
+ * }} MeetingResults
+ */
+
 /**
  * @typedef {{
  *   isActive: boolean,
  *   callerId: string,
- *   votes: {[playerId: string]: string}, // playerId -> votedForId
- *   endTime: number
+ *   votes: {[playerId: string]: string|null}, // playerId -> votedForId
+ *   endTime: number,
+ *   results?: MeetingResults
  * }} MeetingState
  */
 
@@ -31,8 +59,13 @@
  *   imposter: (string|null),
  *   host: Player,
  *   players: {[key: string]: Player},
- *   currentMeeting: MeetingState | null
+ *   currentMeeting: MeetingState | null,
+ *   questions: Question[]
  * }} GameRoom
+ */
+
+/**
+ * @typedef {Omit<GameRoom, 'questions'> & {questions: PublicQuestion[]}} PublicGameRoom
  */
 
 export {};
