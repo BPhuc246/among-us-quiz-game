@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { io as connect } from "socket.io-client";
 import { TasksManager, TASK_STATIONS } from "../../backend/src/managers/tasks.manager.js";
-import { RoomsManager } from "../../backend/src/managers/rooms.manager.js";
+import { RoomsManager, GAME_SPAWN } from "../../backend/src/managers/rooms.manager.js";
 import { registerRoomEvents } from "../../backend/src/events/roomEvents.js";
 import { registerGameEvents } from "../../backend/src/events/gameEvents.js";
 import { registerTaskEvents } from "../../backend/src/events/taskEvents.js";
@@ -110,7 +110,8 @@ test("tasks require a running game, proximity, valid choices and no meeting", ()
 test("every station is on clear floor reachable from the spawn", async () => {
     const map = JSON.parse(await readFile(new URL("../public/assets/map/map.json", import.meta.url), "utf8"));
     const layer = map.layers.find((item) => item.name === "collisions");
-    const start = Math.floor(150 / 8) * map.width + Math.floor(560 / 8);
+    const start = Math.floor(GAME_SPAWN.y / map.tileheight) * map.width + Math.floor(GAME_SPAWN.x / map.tilewidth);
+    assert.equal(layer.data[start], 0, "Game spawn must be on clear floor");
     const visited = new Set([start]);
     const queue = [start];
     for (let i = 0; i < queue.length; i++) {
@@ -123,7 +124,7 @@ test("every station is on clear floor reachable from the spawn", async () => {
         }
     }
     for (const station of TASK_STATIONS) {
-        assert.ok(visited.has(Math.floor(station.y / 8) * map.width + Math.floor(station.x / 8)), station.name);
+        assert.ok(visited.has(Math.floor(station.y / map.tileheight) * map.width + Math.floor(station.x / map.tilewidth)), station.name);
     }
 });
 
@@ -176,11 +177,13 @@ test("multiplayer: complete JSON, identity checks, task sync and crew victory", 
     assert.notDeepEqual(snapshots[crews[0]].tasks.map((task) => task.station.id), snapshots[crews[1]].tasks.map((task) => task.station.id));
     const answer = (index, taskId, optionIndex, extra = {}) => clients[index].timeout(3000).emitWithAck("task:answer", { roomId, taskId, optionIndex, ...extra });
     assert.equal((await answer(imposterIndex, "q1", 1)).ok, false);
-    assert.equal((await answer(crews[0], "q2", 0)).ok, false); // Outside station range.
+    clients[crews[0]].emit("player:move", { roomId, id: `quiz-player-${crews[0]}`, x: 0, y: 0 });
+    assert.equal((await answer(crews[0], "q2", 0)).ok, false); // Outside every station range.
+    clients[crews[0]].emit("player:move", { roomId, id: `quiz-player-${crews[0]}`, ...GAME_SPAWN });
     // A client cannot submit on behalf of another crewmate or move their sprite.
     clients[imposterIndex].emit("player:move", { roomId, id: `quiz-player-${crews[0]}`, x: 999, y: 999 });
     await answer(imposterIndex, "q1", 1);
-    assert.equal(room.players[`quiz-player-${crews[0]}`].state.x, 560);
+    assert.equal(room.players[`quiz-player-${crews[0]}`].state.x, GAME_SPAWN.x);
     const ended = clients.map((client) => once(client, "game:ended"));
     for (const index of crews) {
         for (let q = 0; q < questions.length; q++) {

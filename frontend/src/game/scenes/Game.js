@@ -93,6 +93,7 @@ export class Game extends BaseGameScene {
         // stored promise for imposter role assignment
         const prom1 = this.createCommon();
         this.deadBodies = new Map();
+        this.meetingActive = false;
         this.socket = socketService.getSocket();
         this.input.on("pointerdown", (pointer) => {
             console.log(
@@ -105,14 +106,13 @@ export class Game extends BaseGameScene {
             );
         });
 
-        this.game.renderer.pipelines.add(
-            "GrayScale",
-            new GrayPipeline(this.game),
-        );
-        this.game.renderer.pipelines.add(
-            "VisionRadius",
-            new VisionRadiusPipeline(this.game),
-        );
+        const pipelines = this.game.renderer.pipelines;
+        if (!pipelines.has("GrayScale")) {
+            pipelines.add("GrayScale", new GrayPipeline(this.game));
+        }
+        if (!pipelines.has("VisionRadius")) {
+            pipelines.add("VisionRadius", new VisionRadiusPipeline(this.game));
+        }
 
         this.closest = { player: null, distance: 60 };
 

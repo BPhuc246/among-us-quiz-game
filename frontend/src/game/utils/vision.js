@@ -19,8 +19,8 @@ export function setupVisionSystem(scene) {
             object: scene.background,
             origin: { x: 0, y: 0 },
             size: {
-                width: scene.background.width,
-                height: scene.background.height
+                width: scene.background.displayWidth,
+                height: scene.background.displayHeight
             }
         };
         scene.mapObjectBounds.push(bounds);

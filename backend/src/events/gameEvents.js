@@ -71,7 +71,8 @@ export const registerGameEvents = (io, socket) => {
         // Frontend emits `id`; accept either id or playerId
         const playerId = data.id ?? data.playerId;
         if (!data.roomId || !playerId) return;
-        if (socket.data.playerId !== playerId || !socket.rooms.has(data.roomId)) return;
+        if (socket.data.playerId !== playerId || !socket.rooms.has(data.roomId))
+            return;
         if (!Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
 
         RoomsManager.players.updateState(data.roomId, playerId, {
@@ -135,7 +136,8 @@ export const registerGameEvents = (io, socket) => {
 
         const room = RoomsManager.fetchRoom(roomId);
         if (!room) return reject("ROOM_NOT_FOUND");
-        if (!room.started || room.currentMeeting?.isActive) return reject("GAME_UNAVAILABLE");
+        if (!room.started || room.currentMeeting?.isActive)
+            return reject("GAME_UNAVAILABLE");
 
         const killer = room.players[killerId];
         const victim = room.players[playerId];
@@ -154,7 +156,12 @@ export const registerGameEvents = (io, socket) => {
         victim.isAlive = false;
 
         // Report checks use the corpse position, never the ghost's later position.
-        const body = { playerId, x: victim.state.x, y: victim.state.y, color: victim.color };
+        const body = {
+            playerId,
+            x: victim.state.x,
+            y: victim.state.y,
+            color: victim.color,
+        };
         room.deadBodies ??= {};
         room.deadBodies[playerId] = body;
         io.to(roomId).emit("player:killed", { roomId, killerId, ...body });
@@ -170,52 +177,109 @@ export const registerGameEvents = (io, socket) => {
 
     /**
      * @param {MeetingStartData} data
-     * @returns {void}
+     * @returns {boolean}
      */
     const meetingStart = (data) => {
         const room = RoomsManager.fetchRoom(data.roomId);
         if (!room?.started || room.currentMeeting?.isActive) return false;
         RoomsManager.meetings.create(data.roomId, data.callerId, meetingEnd);
-        io.to(data.roomId).emit("meeting:started", { ...data, players: room.players });
+        io.to(data.roomId).emit("meeting:started", {
+            ...data,
+            players: room.players,
+        });
         return true;
     };
 
+    /**
+     * Xử lý yêu cầu báo cáo xác chết.
+     *
+     * @param {MeetingStartData} data - Thông tin cuộc họp được tạo từ việc báo xác.
+     * @param {(response: { ok: boolean, message?: string }) => void} [ack] - Callback phản hồi kết quả cho client.
+     * @returns {void}
+     */
     const bodyReport = (data, ack) => {
         const reply = typeof ack === "function" ? ack : () => {};
-        const reject = (message) => reply({ ok: false, message });
-        if (!data || typeof data.roomId !== "string" || typeof data.bodyId !== "string") return reject("Thông tin báo xác không hợp lệ.");
+        const reject = (message = "") => reply({ ok: false, message });
+
+        if (
+            !data ||
+            typeof data.roomId !== "string" ||
+            typeof data.bodyId !== "string"
+        )
+            return reject("Thông tin báo xác không hợp lệ.");
+
         const room = RoomsManager.fetchRoom(data.roomId);
         const callerId = socket.data.playerId;
         const player = room?.players[callerId];
-        if (!room?.started || !socket.rooms.has(data.roomId) || !player) return reject("Bạn không ở trong ván chơi này.");
+
+        if (!room?.started || !socket.rooms.has(data.roomId) || !player)
+            return reject("Bạn không ở trong ván chơi này.");
+
         if (!player.isAlive) return reject("Người đã chết không thể báo xác.");
-        if (room.currentMeeting?.isActive) return reject("Cuộc họp đang diễn ra.");
-        const body = Object.hasOwn(room.deadBodies || {}, data.bodyId) ? room.deadBodies[data.bodyId] : null;
+
+        if (room.currentMeeting?.isActive)
+            return reject("Cuộc họp đang diễn ra.");
+
+        const body = Object.hasOwn(room.deadBodies || {}, data.bodyId)
+            ? room.deadBodies[data.bodyId]
+            : null;
         if (!body) return reject("Xác này không còn trên bản đồ.");
-        if (!Number.isFinite(player.state.x) || !Number.isFinite(player.state.y) ||
-            Math.hypot(player.state.x - body.x, player.state.y - body.y) > REPORT_RADIUS) return reject("Bạn cần đến gần xác để báo cáo.");
-        meetingStart({ roomId: room.id, callerId, bodyId: body.playerId, reason: "report" });
+
+        if (
+            !Number.isFinite(player.state.x) ||
+            !Number.isFinite(player.state.y) ||
+            Math.hypot(player.state.x - body.x, player.state.y - body.y) >
+                REPORT_RADIUS
+        ) {
+            return reject("Bạn cần đến gần xác để báo cáo.");
+        }
+
+        meetingStart({
+            roomId: room.id,
+            callerId,
+            bodyId: body.playerId,
+            reason: "report",
+        });
+
         reply({ ok: true });
     };
 
     /**
-     * @param {MeetingEndData} data
+     * Xử lý kết thúc cuộc họp.
+     *
+     * @param {MeetingEndData} data - Dữ liệu kết thúc cuộc họp.
      * @returns {void}
      */
     const meetingEnd = (data) => {
-        console.log("Recieved meeting end", data);
+        console.log("Received meeting end", data);
+
         data.results = RoomsManager.meetings.end(data.roomId);
         if (!data.results) return;
+
         const room = RoomsManager.fetchRoom(data.roomId);
+        if (!room) return;
+
         room.deadBodies = {};
+
         io.to(data.roomId).emit("meeting:ended", data);
+
         // Check win condition after meeting
         const roomId = data.roomId;
         const win = RoomsManager.checkWin(roomId);
+
         console.log("Win condition check after meeting:", win);
+
         if (win !== null) {
-            RoomsManager.fetchRoom(roomId).started = false;
-            io.to(roomId).emit("game:ended", { roomId, isImposter: win });
+            const currentRoom = RoomsManager.fetchRoom(roomId);
+
+            if (!currentRoom) return;
+
+            currentRoom.started = false;
+
+            io.to(roomId).emit("game:ended", {
+                roomId,
+                isImposter: win,
+            });
         }
     };
 

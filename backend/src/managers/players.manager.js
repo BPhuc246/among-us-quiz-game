@@ -1,31 +1,34 @@
 /**
- * @typedef {import('../types/room.type.js').Player} Player
- * @typedef {import('../types/room.type.js').PlayerState} PlayerState
+ * @type {{[key: string] : import('../types/room.type.js').Player}}
  */
-
-/** @type {{[key: string]: Player}} */
 const players = {};
 
-/** @returns {PlayerState} */
-const defaultState = () => ({x: 560, y: 150, d: 'left', moving: false});
+// Safe spawn position in Lobby
+const LOBBY_SPAWN = Object.freeze({
+    x: 615,
+    y: 550,
+});
 
 export const PlayersManager = {
-
     /**
      * @param {string} id
      * @param {string} name
      * @param {string} color
-     * @param {string|null} [roomId=null]
-     * @returns {void}
+     * @param {string|null} roomId
      */
     createPlayer(id, name, color, roomId = null) {
         const key = id;
+
         if (!players[key]) {
             players[key] = {
                 id: key,
                 name: name,
                 roomId: roomId,
-                state: defaultState(),
+                state: {
+                    ...LOBBY_SPAWN,
+                    d: "left",
+                    moving: false,
+                },
                 color: color,
                 isImposter: false,
                 isAlive: true,
@@ -39,7 +42,6 @@ export const PlayersManager = {
 
     /**
      * @param {string} id
-     * @returns {void}
      */
     deletePlayer(id) {
         delete players[id];
@@ -47,55 +49,51 @@ export const PlayersManager = {
 
     /**
      * @param {string} id
-     * @param {Partial<PlayerState>} state
+     * @param {Partial<import('../types/room.type.js').PlayerState>} state
      * @returns {void}
      */
     updatePlayerState(id, state) {
         const player = players[id];
         if (player) {
-            player.state = {...player.state, ...state};
+            player.state = { ...player.state, ...state };
         }
     },
 
     /**
      * @param {string} id
-     * @returns {Player|undefined}
      */
     getPlayer(id) {
         return players[id];
     },
 
-    /**
-     * @returns {Player[]}
-     */
     getAllPlayers() {
         return Object.values(players);
     },
 
     /**
      * @param {string} id
-     * @returns {void}
      */
     resetPlayer(id) {
-        const player = players[id];
-        if (player) {
-            player.state = defaultState();
-            player.isAlive = true;
-            player.isImposter = false;
+        if (players[id]) {
+            players[id].state = {
+                ...LOBBY_SPAWN,
+                d: "left",
+                moving: false,
+            };
+
+            players[id].isAlive = true;
+            players[id].isImposter = false;
         }
     },
 
     /**
      * @param {string} id
-     * @param {string|null} roomId
-     * @returns {Player|undefined}
+     * @param {string} roomId
      */
     setRoomId(id, roomId) {
-        const player = players[id];
-        if (player) {
-            player.roomId = roomId;
-            return player;
+        if (players[id]) {
+            players[id].roomId = roomId;
+            return players[id];
         }
-        return undefined;
     },
 };
