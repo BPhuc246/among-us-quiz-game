@@ -97,24 +97,30 @@ export class BaseGameScene extends Scene {
         );
         const collisionLayer = map.createLayer("collisions", tileset, 0, 0);
 
+        // The Tiled collision grid is the source of truth for world dimensions.
+        // Fit the artwork to that exact grid so the collision cells and image stay aligned.
         this.background = this.add
             .image(0, 0, config.backgroundKey)
             .setOrigin(0, 0)
-            .setName("background");
+            .setDisplaySize(map.widthInPixels, map.heightInPixels)
+            .setName("background")
+            .setDepth(-10);
         this.worldContainer.add(this.background);
 
-        if (collisionLayer) {
-            if (this.scene.key === "WaitingLobby") {
-                const scaleX = 1232 / map.widthInPixels;
-                const scaleY = 1008 / map.heightInPixels;
-                collisionLayer.setScale(scaleX, scaleY);
-            }
+        // Use linear filtering for the high-resolution background.
+        const backgroundTexture = this.textures.get(config.backgroundKey);
+        if (backgroundTexture && backgroundTexture.setFilter) {
+            backgroundTexture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+        }
 
+        if (collisionLayer) {
             collisionLayer.setVisible(false);
             collisionLayer.setCollisionByExclusion([-1, 0]);
+            collisionLayer.setDepth(-5);
             this.collisionLayer = collisionLayer;
-            this.worldContainer.add(collisionLayer);
 
+            // Keep TilemapLayer on the Scene display list. Do not parent it to
+            // worldContainer: Arcade Physics colliders work against the layer directly.
             if (this.physics.config.debug) {
                 collisionLayer.setVisible(true);
                 collisionLayer.setAlpha(0.5);
