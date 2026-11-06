@@ -1,3 +1,4 @@
+
 /**
  * @typedef {import('../types/room.type.js').Player} Player
  * @typedef {import('../types/room.type.js').PlayerState} PlayerState
@@ -6,6 +7,11 @@
 /** @type {{[key: string]: Player}} */
 const players = {};
 
+// Safe spawn position in Lobby
+const LOBBY_SPAWN = Object.freeze({
+    x: 615,
+    y: 550
+});
 /** @returns {PlayerState} */
 const defaultState = () => ({x: 560, y: 150, d: 'left', moving: false});
 
@@ -20,6 +26,7 @@ export const PlayersManager = {
      */
     createPlayer(id, name, color, roomId = null) {
         const key = id;
+
         if (!players[key]) {
             players[key] = {
                 id: key,
@@ -30,11 +37,8 @@ export const PlayersManager = {
                 isImposter: false,
                 isAlive: true,
             };
-        } else {
-            // Update existing player's name and color
-            players[key].name = name;
-            players[key].color = color;
         }
+        return players[key];
     },
 
     /**
@@ -47,6 +51,17 @@ export const PlayersManager = {
 
     /**
      * @param {string} id
+     * @param {object} state
+     */
+    updatePlayerState(id, state) {
+        if (players[id]) {
+            players[id].state = {
+                ...players[id].state,
+                ...state
+            };
+        }
+    },
+
      * @param {Partial<PlayerState>} state
      * @returns {void}
      */
