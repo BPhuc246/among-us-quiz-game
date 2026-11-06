@@ -220,7 +220,9 @@ export const registerGameEvents = (io, socket) => {
         if (room.currentMeeting?.isActive)
             return reject("Cuộc họp đang diễn ra.");
 
-        const body = room.deadBodies?.[data.bodyId] ?? null;
+        const body = Object.hasOwn(room.deadBodies || {}, data.bodyId)
+            ? room.deadBodies[data.bodyId]
+            : null;
         if (!body) return reject("Xác này không còn trên bản đồ.");
 
         if (

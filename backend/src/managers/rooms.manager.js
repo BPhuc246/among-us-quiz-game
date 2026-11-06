@@ -1,6 +1,9 @@
 import { PlayersManager } from "./players.manager.js";
 import { TasksManager } from "./tasks.manager.js";
 
+// Clear floor below the emergency table on the current Skeld collision map.
+export const GAME_SPAWN = Object.freeze({ x: 560, y: 180 });
+
 /**
  * @typedef {import('../types/room.type.js').Player} Player
  * @typedef {import('../types/room.type.js').GameRoom} GameRoom
@@ -319,8 +322,7 @@ export const RoomsManager = {
         players.forEach((p) => {
             p.isAlive = true;
             PlayersManager.updatePlayerState(p.id, {
-                x: 560,
-                y: 150,
+                ...GAME_SPAWN,
                 d: "left",
                 moving: false,
             });
