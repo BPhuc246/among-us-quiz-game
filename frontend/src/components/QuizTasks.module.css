@@ -1,0 +1,36 @@
+.hud { position: fixed; top: 64px; left: 16px; z-index: 1001; width: min(300px, 40vw); padding: 16px; color: #f0f5fb; border: 1px solid #455066; border-radius: 12px; background: #111827e8; box-shadow: 0 8px 30px #0006; font-family: Arial, sans-serif; }
+.progressLabel { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; letter-spacing: .05em; }
+.progress { height: 12px; margin-top: 10px; background: #343d4e; border-radius: 4px; overflow: hidden; }
+.progress > div { height: 100%; background: #74df7b; transition: width .3s; }
+.hud h2 { margin: 18px 0 8px; font-size: 16px; display: flex; justify-content: space-between; }
+.hud h2 span { color: #ffe08a; }
+.hint { color: #c2ccd9; font-size: 12px; line-height: 1.5; margin: 10px 0; }
+.taskList { list-style: none; padding: 0; margin: 12px 0; max-height: 25vh; overflow-y: auto; font-size: 13px; }
+.taskList li { display: flex; gap: 8px; padding: 6px 0; color: #ffe08a; }
+.taskList li.done { color: #7ae08b; }
+.useButton { position: fixed; right: 24px; bottom: 28px; z-index: 1002; padding: 15px 20px; border: 2px solid #ffe08a; border-radius: 12px; background: #ffe08a; color: #192131; font-weight: 800; font-size: 15px; cursor: pointer; }
+.useButton:disabled { background: #1b2332; color: #91a0b6; border-color: #4c586b; cursor: default; }
+.useButton kbd { margin-left: 8px; padding: 3px 6px; border: 1px solid currentColor; border-radius: 4px; }
+.backdrop { position: fixed; inset: 0; z-index: 1500; display: grid; place-items: center; padding: 20px; background: #030712b8; }
+.dialog { box-sizing: border-box; width: min(600px, 100%); max-height: 92vh; overflow-y: auto; padding: 26px; border: 2px solid #7c94b3; border-radius: 20px; background: #152033; color: #f5f7fb; box-shadow: 0 24px 90px #000b; font-family: Arial, sans-serif; }
+.dialogTop { display: flex; justify-content: space-between; align-items: center; gap: 16px; color: #b6c5d9; font-size: 13px; }
+.dialogTop button { background: #293950; color: white; border: 1px solid #5c718f; border-radius: 8px; width: 34px; height: 34px; cursor: pointer; }
+.eyebrow { margin: 24px 0 10px; font-size: 11px; letter-spacing: .15em; color: #ffe08a; font-weight: bold; }
+.dialog h2 { margin: 0 0 12px; font-size: clamp(20px, 3vw, 27px); line-height: 1.35; overflow-wrap: anywhere; }
+.description { color: #c1cedf; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+.options { display: grid; gap: 10px; margin: 20px 0; }
+.option { display: flex; align-items: center; gap: 14px; text-align: left; width: 100%; padding: 12px 14px; border: 1px solid #566881; border-radius: 10px; background: #202f46; color: #eef4fc; font-size: 15px; line-height: 1.5; cursor: pointer; overflow-wrap: anywhere; }
+.option > span { display: grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; border-radius: 7px; background: #36465e; font-size: 12px; font-weight: bold; }
+.option.selected { border-color: #ffe08a; background: #3b3c30; }
+.option.selected > span { background: #ffe08a; color: #192131; }
+.option:disabled { cursor: default; }
+.feedback { padding: 12px 14px; border-radius: 8px; font-size: 14px; line-height: 1.6; }
+.feedback p { margin: 6px 0 0; }
+.correct { background: #163d35; color: #acfac1; }
+.incorrect { background: #4b2734; color: #ffd0d3; }
+.actions { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 20px; }
+.actions > span { color: #aebed1; font-size: 11px; line-height: 1.6; max-width: 220px; }
+.submit { flex-shrink: 0; padding: 12px 20px; background: #ffe08a; color: #192131; border: 0; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: bold; }
+.submit:disabled { opacity: .45; cursor: default; }
+.dialog button:focus-visible, .useButton:focus-visible { outline: 3px solid #79c7ff; outline-offset: 3px; }
+@media (max-width: 600px) { .hud { left: 8px; top: 58px; width: 200px; padding: 10px; } .taskList { max-height: 15vh; } .dialog { padding: 18px; } .actions { gap: 10px; } .useButton { right: 12px; bottom: 16px; font-size: 12px; } }
