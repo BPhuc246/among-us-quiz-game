@@ -5,7 +5,7 @@ export const TASK_STATIONS = [
     { id: "navigation", name: "Điều hướng", x: 945, y: 240 },
     { id: "admin", name: "Quản trị", x: 640, y: 290 },
     { id: "storage", name: "Kho hàng", x: 580, y: 470 },
-    { id: "electrical", name: "Phòng điện", x: 400, y: 350 },
+    { id: "electrical", name: "Phòng điện", x: 410, y: 330 },
     { id: "security", name: "An ninh", x: 300, y: 250 },
     { id: "reactor", name: "Lò phản ứng", x: 120, y: 250 },
 ];

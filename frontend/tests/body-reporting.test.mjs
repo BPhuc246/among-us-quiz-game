@@ -7,7 +7,7 @@ import { io as connect } from "socket.io-client";
 import { addDeadBody, clearDeadBodies, nearestReportableBody, updateBodyReporting } from "../src/game/utils/bodyReporting.js";
 import { registerGameEvents } from "../../backend/src/events/gameEvents.js";
 import { registerRoomEvents } from "../../backend/src/events/roomEvents.js";
-import { RoomsManager } from "../../backend/src/managers/rooms.manager.js";
+import { RoomsManager, GAME_SPAWN } from "../../backend/src/managers/rooms.manager.js";
 const { Server } = createRequire(new URL("../../backend/package.json", import.meta.url))("socket.io");
 
 test("corpse rendering uses real frames; reporting respects range and living players; cleanup cancels animations", async () => {
@@ -93,8 +93,8 @@ async function createGame(t) {
     clients[killer].emit("player:kill", { roomId, killerId: ids[killer], playerId: ids[victim], x: 999, y: 999, color: "wrong-color" });
     const body = await killed;
     assert.equal(body.color, room.players[ids[victim]].color);
-    assert.equal(body.x, 560);
-    assert.equal(body.y, 150);
+    assert.equal(body.x, GAME_SPAWN.x);
+    assert.equal(body.y, GAME_SPAWN.y);
     assert.ok(room.started); // Four players prevents this kill immediately ending the game.
     const move = (index, x, y) => clients[index].emit("player:move", { roomId, id: ids[index], x, y, d: "left", moving: false });
     const report = (index, extra = {}) => clients[index].timeout(3000).emitWithAck("body:report", { roomId, bodyId: ids[victim], ...extra });
