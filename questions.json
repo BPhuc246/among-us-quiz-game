@@ -1,0 +1,44 @@
+[
+  {
+    "id": "q1",
+    "roomId": "ROOM001",
+    "title": "Hành tinh nào được gọi là Hành tinh Đỏ?",
+    "description": "Chọn đáp án đúng.",
+    "options": [
+      "Trái Đất",
+      "Sao Hỏa",
+      "Sao Kim",
+      "Sao Mộc"
+    ],
+    "answer": "Sao Hỏa",
+    "explain": "Sao Hỏa có bề mặt chứa nhiều oxit sắt, tạo nên màu đỏ đặc trưng."
+  },
+  {
+    "id": "q2",
+    "roomId": "ROOM001",
+    "title": "Kết quả của phép tính 12 × 8 là bao nhiêu?",
+    "description": "Chọn một đáp án.",
+    "options": [
+      88,
+      96,
+      108,
+      112
+    ],
+    "answer": 96,
+    "explain": "12 × 8 = 96."
+  },
+  {
+    "id": "q3",
+    "roomId": "ROOM001",
+    "title": "Ngôn ngữ nào thường được sử dụng để xây dựng giao diện tương tác cho website?",
+    "description": "Chọn đáp án phù hợp nhất.",
+    "options": [
+      "HTML",
+      "CSS",
+      "JavaScript",
+      "SQL"
+    ],
+    "answer": "JavaScript",
+    "explain": "JavaScript thường được dùng để xử lý hành vi và tương tác trên giao diện website."
+  }
+]

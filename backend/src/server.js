@@ -4,19 +4,23 @@ import apiRouter from "./routes/api.js";
 import cors from "cors";
 import { registerRoomEvents } from "./events/roomEvents.js";
 import { registerGameEvents } from "./events/gameEvents.js";
-import 'dotenv/config';
+import { registerTaskEvents } from "./events/taskEvents.js";
+import "dotenv/config";
 import http from "http";
 
 const PORT = process.env.PORT || 3000;
 
+/** @typedef {(err: Error | null, origin?: string | boolean) => void} OriginCallback */
+
 /**
  * Parse ALLOWED_ORIGIN into a list of full origins, e.g.
  * "http://localhost:8080,https://myapp.vercel.app"
+ * @returns {string[]}
  */
 function parseAllowedOrigins() {
-    const raw = process.env.ALLOWED_ORIGIN || process.env.FRONTEND_URL || '';
+    const raw = process.env.ALLOWED_ORIGIN || process.env.FRONTEND_URL || "";
     return raw
-        .split(',')
+        .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
 }
@@ -24,13 +28,14 @@ function parseAllowedOrigins() {
 const configuredOrigins = parseAllowedOrigins();
 
 /**
- * CORS origin check. Reflects matching origins so credentials work.
- * Always allows local Vite (8080) and bare localhost/127.0.0.1 for dev.
+ * Kiểm tra origin có được phép hay không. Luôn cho phép localhost/127.0.0.1 để dev.
+ * @param {string | undefined} origin
+ * @returns {boolean}
  */
 function isOriginAllowed(origin) {
     if (!origin) return true; // non-browser / same-origin tools
 
-    if (configuredOrigins.includes('*')) return true;
+    if (configuredOrigins.includes("*")) return true;
     if (configuredOrigins.includes(origin)) return true;
 
     // Dev convenience: any localhost / 127.0.0.1 port
@@ -41,39 +46,41 @@ function isOriginAllowed(origin) {
     return false;
 }
 
-const corsOptions = {
-    origin(origin, callback) {
+/**
+ * Tạo handler CORS dùng chung cho Express và Socket.IO.
+ * Trả về đúng origin của request để credentials hoạt động.
+ * @param {string} label dùng cho log
+ * @returns {(origin: string | undefined, callback: OriginCallback) => void}
+ */
+function createOriginHandler(label) {
+    return (origin, callback) => {
         if (isOriginAllowed(origin)) {
-            // Reflect the request origin (required when credentials: true)
             callback(null, origin || true);
         } else {
-            console.warn('CORS blocked origin:', origin);
+            console.warn(`${label} CORS blocked origin:`, origin);
             callback(new Error(`CORS blocked for origin: ${origin}`));
         }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-};
+    };
+}
 
 const app = express();
 
-app.use(cors(corsOptions));
+app.use(
+    cors({
+        origin: createOriginHandler("CORS"),
+        credentials: true,
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    }),
+);
 app.use(express.json());
-app.use('/', apiRouter);
+app.use("/", apiRouter);
 
 const server = http.createServer(app);
 
 const io = new Server(server, {
     cors: {
-        origin(origin, callback) {
-            if (isOriginAllowed(origin)) {
-                callback(null, origin || true);
-            } else {
-                console.warn('Socket.IO CORS blocked origin:', origin);
-                callback(new Error(`CORS blocked for origin: ${origin}`));
-            }
-        },
-        methods: ['GET', 'POST'],
+        origin: createOriginHandler("Socket.IO"),
+        methods: ["GET", "POST"],
         credentials: true,
     },
 });
@@ -82,9 +89,12 @@ io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
     registerRoomEvents(io, socket);
     registerGameEvents(io, socket);
+    registerTaskEvents(io, socket);
 });
 
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    console.log(`Allowed origins: ${configuredOrigins.length ? configuredOrigins.join(', ') : '(dev localhost defaults)'}`);
+    console.log(
+        `Allowed origins: ${configuredOrigins.length ? configuredOrigins.join(", ") : "(dev localhost defaults)"}`,
+    );
 });
