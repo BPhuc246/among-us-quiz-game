@@ -3,8 +3,18 @@ import { GrayPipeline, VisionRadiusPipeline } from "../shaders/fragShader.js";
 import { socketService } from "../../services/socket.js";
 import { setPlayerColor } from "../utils/playerFactory.js";
 import { EventBus } from "../EventBus.js";
-import { setupQuizTasks, updateQuizTasks, cleanupQuizTasks } from "../utils/quizTasks.js";
-import { addDeadBody, clearDeadBodies, setupBodyReporting, updateBodyReporting, cleanupBodyReporting } from "../utils/bodyReporting.js";
+import {
+    setupQuizTasks,
+    updateQuizTasks,
+    cleanupQuizTasks,
+} from "../utils/quizTasks.js";
+import {
+    addDeadBody,
+    clearDeadBodies,
+    setupBodyReporting,
+    updateBodyReporting,
+    cleanupBodyReporting,
+} from "../utils/bodyReporting.js";
 import {
     handleImposter,
     handleImposterMovement,
@@ -76,6 +86,7 @@ export class Game extends BaseGameScene {
         this.preloadCommon();
         this.preloadMap();
         this.preloadGhostAssets();
+        this.preloadKillAssets();
         this.load.image("kill", "assets/icons/kill_icon.png");
         this.load.atlas(
             "death",
@@ -139,7 +150,8 @@ export class Game extends BaseGameScene {
             this.isInMeetingZone = false;
             setupQuizTasks(this);
             setupBodyReporting(this);
-            for (const body of Object.values(this.room.deadBodies || {})) addDeadBody(this, body, setPlayerColor);
+            for (const body of Object.values(this.room.deadBodies || {}))
+                addDeadBody(this, body, setPlayerColor);
         });
     }
 
@@ -161,7 +173,13 @@ export class Game extends BaseGameScene {
             updateVisionSystem(this);
         }
 
-        if (this.meetingZone && !this.isGhost && !this.meetingActive && !this.quizOpen && this.physics.overlap(this.player, this.meetingZone)) {
+        if (
+            this.meetingZone &&
+            !this.isGhost &&
+            !this.meetingActive &&
+            !this.quizOpen &&
+            this.physics.overlap(this.player, this.meetingZone)
+        ) {
             if (!this.isInMeetingZone) {
                 this.isInMeetingZone = true;
                 this.meetingBtn.visible = true;
@@ -184,8 +202,10 @@ export class Game extends BaseGameScene {
                 this.socket.off("player:killed", this.onPlayerKilled);
                 this.onPlayerKilled = null;
             }
-            if (this.onMeetingStarted) this.socket.off("meeting:started", this.onMeetingStarted);
-            if (this.onMeetingEnded) this.socket.off("meeting:ended", this.onMeetingEnded);
+            if (this.onMeetingStarted)
+                this.socket.off("meeting:started", this.onMeetingStarted);
+            if (this.onMeetingEnded)
+                this.socket.off("meeting:ended", this.onMeetingEnded);
             if (this.onGameEnd) {
                 this.socket.off("game:ended", this.onGameEnd);
                 this.onGameEnd = null;
@@ -243,7 +263,10 @@ export class Game extends BaseGameScene {
 
             if (isLocalTarget) {
                 EventBus.emit("quiz:cancel");
-                // Mình bị giết: hiện ô đỏ rồi chuyển sang ghost, không destroy sprite
+                // Mình bị giết: hiện kill cinematic (màu imposter + victim) rồi chuyển sang ghost
+                const killerColor = data.color || data.killerColor;
+                const victimColor = this.playerObj?.color;
+                this.showKillScreen(killerColor, victimColor);
                 this.enterGhostMode();
                 disableVisionSystem(this);
             } else if (this.isGhost) {
@@ -260,7 +283,8 @@ export class Game extends BaseGameScene {
                 delete this.players[targetId];
             }
 
-            if (this.room?.players[targetId]) this.room.players[targetId].isAlive = false;
+            if (this.room?.players[targetId])
+                this.room.players[targetId].isAlive = false;
             addDeadBody(this, data, setPlayerColor);
         };
 
