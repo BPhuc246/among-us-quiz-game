@@ -9,7 +9,7 @@ import EndGame from "./components/EndGame.jsx";
 import {EventBus} from './game/EventBus';
 import RoleIndicator from "./components/RoleIndicator.jsx";
 import { ToastContainer } from "./components/Toast.jsx";
-import QuizTasks from "./components/QuizTasks.jsx";
+import TaskQuestion from "./components/TaskQuestion.jsx";
 const PAGES = {MENU: 'lobby', WAITING: 'waiting', GAME: 'game', GAMEEND: 'gameend'};
 
 function App() {
@@ -30,6 +30,7 @@ function App() {
   const [isLocalPlayerHost, setIsLocalPlayerHost] = useState(false);
   const LocalImposterRef = useRef(false); // TODO remove unwanted states with ref
   const [roleIndicator, setRoleIndicator] = useState(false);
+  const [activeTask, setActiveTask] = useState(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -75,6 +76,8 @@ function App() {
       console.log('Meeting started in App:', data);
       setMeetingData(data);
       setMeetingActive(true);
+      setActiveTask(null);
+      EventBus.emit('task:close');
       setTimeRemaining(60000); // Reset timer to 60 seconds
     };
 
@@ -88,6 +91,11 @@ function App() {
       console.log('Game end event received in App:', data);
       setGameResult(data);
       setCurrentPage(PAGES.GAMEEND);
+    };
+
+    // Phaser opens a quiz modal when the local player presses E near a task station.
+    const handleTaskInteract = (task) => {
+      setActiveTask(task);
     };
 
     const handleVote = (data) => {
@@ -109,6 +117,7 @@ function App() {
     EventBus.on('meeting:started', handleMeetingStarted);
     EventBus.on('meeting:ended', handleMeetingEnded);
     EventBus.on('game:ended', handleGameEnd);
+    EventBus.on('task:interact', handleTaskInteract);
 
     return () => {
       sockett.off('connect', handleConnect);
@@ -119,6 +128,7 @@ function App() {
       EventBus.off('meeting:started', handleMeetingStarted);
       EventBus.off('meeting:ended', handleMeetingEnded);
       EventBus.off('game:ended', handleGameEnd);
+      EventBus.off('task:interact', handleTaskInteract);
       socketService.disconnect();
     };
   }, []);
@@ -139,6 +149,8 @@ function App() {
   const handleBackToMenu = () => {
     const playerId = sessionStorage.getItem('playerId');
     if (socket && playerId) socket.emit('room:leave', {playerId});
+    setActiveTask(null);
+    EventBus.emit('task:close');
     setRoomId(null);
     setCurrentPage(PAGES.MENU);
     window.location.reload();
@@ -160,6 +172,15 @@ function App() {
 
     return () => clearInterval(interval);
   }, [meetingActive]);
+
+  const handleTaskClose = () => {
+    setActiveTask(null);
+    EventBus.emit('task:close');
+  };
+
+  const handleTaskComplete = (taskId) => {
+    EventBus.emit('task:completed', { taskId });
+  };
 
   const handleVoteCallBack = (data) => {
     data.roomId = roomId;
@@ -228,6 +249,14 @@ function App() {
               onVote={handleVoteCallBack}
               onEndMeeting={handleEndMeeting}
               timeRemaining={timeRemaining}
+            />
+          )}
+
+          {activeTask && !meetingActive && (
+            <TaskQuestion
+              task={activeTask}
+              onClose={handleTaskClose}
+              onComplete={handleTaskComplete}
             />
           )}
         </div>
