@@ -198,6 +198,7 @@ export const registerGameEvents = (io, socket) => {
      * @returns {void}
      */
     const bodyReport = (data, ack) => {
+        /** @type {(response: {ok: boolean, message?: string}) => void} */
         const reply = typeof ack === "function" ? ack : () => {};
         const reject = (message = "") => reply({ ok: false, message });
 

@@ -4,11 +4,7 @@ import { socketService } from "../../services/socket.js";
 import { setPlayerColor } from "../utils/playerFactory.js";
 import { EventBus } from "../EventBus.js";
 import { TaskManager } from "../tasks/TaskManager.js";
-import {
-    setupQuizTasks,
-    updateQuizTasks,
-    cleanupQuizTasks,
-} from "../utils/quizTasks.js";
+import { setupQuizTasks, cleanupQuizTasks } from "../utils/quizTasks.js";
 import {
     addDeadBody,
     clearDeadBodies,
@@ -184,7 +180,6 @@ export class Game extends BaseGameScene {
         if (!this.taskModalOpen) {
             handleImposterMovement(this);
         }
-        updateQuizTasks(this);
         updateBodyReporting(this);
         handleImposterMovement(this);
 

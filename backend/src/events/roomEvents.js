@@ -54,16 +54,25 @@ export const registerRoomEvents = (io, socket) => {
             console.error("Player not found for room creation:", data.hostId);
             return;
         }
+
         const questions = RoomsManager.parseQuestions(
             data.roomId,
             data.questions,
         );
-        if (!Array.isArray(data.questions) || questions.length === 0 || questions.length !== data.questions.length) {
-            socket.emit("room:join:error", { message: "JSON cần có câu hỏi hợp lệ, id duy nhất, ít nhất 2 lựa chọn khác nhau và đáp án nằm trong lựa chọn." });
+        if (!questions) {
+            socket.emit("room:join:error", {
+                message:
+                    "Danh sách câu hỏi không hợp lệ. Cần ít nhất 2 câu, mỗi câu có title, explain, options (ít nhất 2 lựa chọn, không trùng nhau) và answer nằm trong options.",
+            });
             return;
         }
+
         const room = RoomsManager.createRoom(data.roomId, player, questions);
-        // Không gửi đáp án cho client
+        if (!room) {
+            socket.emit("room:join:error", { message: "Mã phòng đã tồn tại." });
+            return;
+        }
+
         io.emit("room:created", {
             roomId: data.roomId,
             room: RoomsManager.toPublicRoom(room),
@@ -150,14 +159,21 @@ export const registerRoomEvents = (io, socket) => {
 
         const { deleted } = RoomsManager.players.remove(roomId, player);
         const remainingRoom = RoomsManager.fetchRoom(roomId);
-        if (remainingRoom?.started) io.to(roomId).emit("game:task-progress", { roomId, ...TasksManager.progress(remainingRoom) });
+        if (remainingRoom?.started) {
+            io.to(roomId).emit("game:task-progress", {
+                roomId,
+                ...TasksManager.progress(remainingRoom),
+            });
+        }
         PlayersManager.resetPlayer(data.playerId);
+
         const win = RoomsManager.checkWin(roomId);
         console.log("Win condition check after player leave:", win);
-        if (win !== null) {
+        if (win !== null && remainingRoom) {
             remainingRoom.started = false;
             io.to(roomId).emit("game:ended", { roomId, isImposter: win });
         }
+
         io.to(roomId).emit("player:left", { playerId: player.id });
         PlayersManager.setRoomId(player.id, null);
         socket.leave(roomId);
@@ -169,45 +185,57 @@ export const registerRoomEvents = (io, socket) => {
 
     /**
      * @param {GameStartData} data
-     * @returns {void}
+     * @returns {Promise<void>}
      */
-    const gameStart = (data) => {
+    const gameStart = async (data) => {
         console.log("Game start received:", data);
         const room = RoomsManager.fetchRoom(data.roomId);
         if (!room) {
-            console.error(
-                "Room not found or could not start game:",
-                data.roomId,
-            );
             socket.emit("game:notif", { message: "Room not found" });
             return;
         }
-        console.log("Room data for game start:", room);
-        if (room.started || socket.data.playerId !== room.host.id || !socket.rooms.has(room.id)) return;
-        if (!room.questions.length) {
-            socket.emit("game:notif", { message: "Cần thêm câu hỏi trước khi bắt đầu ván chơi." });
+        if (
+            room.started ||
+            socket.data.playerId !== room.host.id ||
+            !socket.rooms.has(room.id)
+        ) {
+            return;
+        }
+        if (room.questions.length < 2) {
+            socket.emit("game:notif", {
+                message: "Cần ít nhất 2 câu hỏi trước khi bắt đầu ván chơi.",
+            });
             return;
         }
         if (Object.values(room.players).length <= 1) {
-            console.error(
-                "Not enough players in room, cannot start game:",
-                data.roomId,
-            );
             socket.emit("game:notif", {
                 message: "Need at least 2 players to start the game",
             });
             return;
         }
+
         // Xóa spectator của ván trước, ván mới ai cũng sống
         io.socketsLeave(`${data.roomId}:spectators`);
         RoomsManager.startGame(data.roomId);
         io.to(data.roomId).emit("game:started", data);
-        // Gửi toàn bộ câu hỏi (gồm cả đáp án) cho tất cả người chơi trong room
-        io.to(data.roomId).emit("game:questions", {
-            roomId: data.roomId,
-            questions: room.questions,
+        io.to(data.roomId).emit("game:task-progress", {
+            roomId: room.id,
+            ...TasksManager.progress(room),
         });
-        io.to(data.roomId).emit("game:task-progress", { roomId: room.id, ...TasksManager.progress(room) });
+
+        // Mỗi người chơi chỉ nhận vai trò và nhiệm vụ của riêng mình
+        const sockets = await io.in(data.roomId).fetchSockets();
+        for (const s of sockets) {
+            const playerId = s.data.playerId;
+            if (typeof playerId !== "string") continue;
+            io.to(s.id).emit("game:role", {
+                isImposter: room.imposter === playerId,
+            });
+            io.to(s.id).emit(
+                "game:tasks",
+                TasksManager.snapshot(room, playerId),
+            );
+        }
     };
 
     /**
@@ -237,13 +265,18 @@ export const registerRoomEvents = (io, socket) => {
                 const roomId = player.roomId;
                 const { deleted } = RoomsManager.players.remove(roomId, player);
                 const remainingRoom = RoomsManager.fetchRoom(roomId);
-                if (remainingRoom?.started) io.to(roomId).emit("game:task-progress", { roomId, ...TasksManager.progress(remainingRoom) });
+                if (remainingRoom?.started) {
+                    io.to(roomId).emit("game:task-progress", {
+                        roomId,
+                        ...TasksManager.progress(remainingRoom),
+                    });
+                }
                 socket.to(roomId).emit("player:left", { playerId: player.id });
                 PlayersManager.deletePlayer(playerId);
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
-                if (win !== null) {
+                if (win !== null && remainingRoom) {
                     remainingRoom.started = false;
                     io.to(roomId).emit("game:ended", {
                         roomId,
@@ -271,13 +304,18 @@ export const registerRoomEvents = (io, socket) => {
             if (roomId) {
                 const { deleted } = RoomsManager.players.remove(roomId, player);
                 const remainingRoom = RoomsManager.fetchRoom(roomId);
-                if (remainingRoom?.started) io.to(roomId).emit("game:task-progress", { roomId, ...TasksManager.progress(remainingRoom) });
+                if (remainingRoom?.started) {
+                    io.to(roomId).emit("game:task-progress", {
+                        roomId,
+                        ...TasksManager.progress(remainingRoom),
+                    });
+                }
                 socket.to(roomId).emit("player:left", { playerId: player.id });
                 PlayersManager.deletePlayer(data.playerId);
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
-                if (win !== null) {
+                if (win !== null && remainingRoom) {
                     remainingRoom.started = false;
                     io.to(roomId).emit("game:ended", {
                         roomId,
