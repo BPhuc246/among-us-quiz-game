@@ -10,6 +10,8 @@ import {EventBus} from './game/EventBus';
 import RoleIndicator from "./components/RoleIndicator.jsx";
 import { ToastContainer } from "./components/Toast.jsx";
 import TaskQuestion from "./components/TaskQuestion.jsx";
+import QuizTasks from "./components/QuizTasks.jsx";
+
 const PAGES = {MENU: 'lobby', WAITING: 'waiting', GAME: 'game', GAMEEND: 'gameend'};
 
 function App() {

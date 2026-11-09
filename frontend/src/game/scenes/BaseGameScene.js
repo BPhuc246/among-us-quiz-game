@@ -1,9 +1,4 @@
-import Phaser, { Scene } from 'phaser';
-import { socketService } from '../../services/socket.js';
-import { apiUrl } from '../../utils/urls.js';
-import { EventBus } from '../EventBus';
-import { createPlayer } from '../utils/playerFactory.js';
-import { Scene } from "phaser";
+import Phaser, { Scene } from "phaser";
 import { socketService } from "../../services/socket.js";
 import { apiUrl } from "../../utils/urls.js";
 import { EventBus } from "../EventBus";
@@ -12,8 +7,8 @@ import { createPlayer, setPlayerColor } from "../utils/playerFactory.js";
 const GHOST_FRAME_COUNT = 48;
 const GHOST_ASSET_DIR = "/assets/sprites/Base/ghost";
 
-const KILL_FRAME_COUNT = 48;
-const KILL_SCREEN_DURATION_MS = 3000;
+const KILL_FRAME_COUNT = 64;
+const KILL_SCREEN_DURATION_MS = 2500;
 const KILL_IMPOSTER_DIR = "assets/sprites/Base/imposterkills/alien";
 const KILL_VICTIM_DIR = "assets/sprites/Base/deaths/alien";
 
@@ -35,7 +30,7 @@ export class BaseGameScene extends Scene {
      * @returns {{ mapKey: string, mapJSON: string, tilesetName: string, tilesetKey: string, backgroundKey: string, backgroundImage: string }}
      */
     getMapConfig() {
-        throw new Error('getMapConfig() must be implemented by child class');
+        throw new Error("getMapConfig() must be implemented by child class");
     }
 
     /**
@@ -43,11 +38,11 @@ export class BaseGameScene extends Scene {
      */
     preloadCommon() {
         this.load.atlas(
-            'player',
-            'assets/walk/texture.png',
-            'assets/walk/texture.json'
+            "player",
+            "assets/walk/texture.png",
+            "assets/walk/texture.json",
         );
-        this.load.image('idleImage', 'assets/sprites/Base/idle.png');
+        this.load.image("idleImage", "assets/sprites/Base/idle.png");
     }
 
     /**
@@ -56,32 +51,41 @@ export class BaseGameScene extends Scene {
     preloadMap() {
         const config = this.getMapConfig();
         // TODO make it more dynamic to handle multiple tilesets
-        this.load.image(config.tilesetKey, `assets/map/${config.tilesetKey}.png`);
-        this.load.image(config.backgroundKey, `assets/map/${config.backgroundImage}`);
-        this.load.tilemapTiledJSON(config.mapKey, `assets/map/${config.mapJSON}`);
+        this.load.image(
+            config.tilesetKey,
+            `assets/map/${config.tilesetKey}.png`,
+        );
+        this.load.image(
+            config.backgroundKey,
+            `assets/map/${config.backgroundImage}`,
+        );
+        this.load.tilemapTiledJSON(
+            config.mapKey,
+            `assets/map/${config.mapJSON}`,
+        );
     }
 
     createWalkAnimation() {
-        if (this.anims.exists('walk')) return;
+        if (this.anims.exists("walk")) return;
 
         this.anims.create({
-            key: 'walk',
+            key: "walk",
             frames: [
-                { key: 'player', frame: 'Walk0001.png' },
-                { key: 'player', frame: 'Walk0002.png' },
-                { key: 'player', frame: 'Walk0003.png' },
-                { key: 'player', frame: 'Walk0004.png' },
-                { key: 'player', frame: 'Walk0005.png' },
-                { key: 'player', frame: 'Walk0006.png' },
-                { key: 'player', frame: 'Walk0007.png' },
-                { key: 'player', frame: 'Walk0008.png' },
-                { key: 'player', frame: 'Walk0009.png' },
-                { key: 'player', frame: 'Walk0010.png' },
-                { key: 'player', frame: 'Walk0011.png' },
-                { key: 'player', frame: 'Walk0012.png' }
+                { key: "player", frame: "Walk0001.png" },
+                { key: "player", frame: "Walk0002.png" },
+                { key: "player", frame: "Walk0003.png" },
+                { key: "player", frame: "Walk0004.png" },
+                { key: "player", frame: "Walk0005.png" },
+                { key: "player", frame: "Walk0006.png" },
+                { key: "player", frame: "Walk0007.png" },
+                { key: "player", frame: "Walk0008.png" },
+                { key: "player", frame: "Walk0009.png" },
+                { key: "player", frame: "Walk0010.png" },
+                { key: "player", frame: "Walk0011.png" },
+                { key: "player", frame: "Walk0012.png" },
             ],
             frameRate: 12,
-            repeat: -1
+            repeat: -1,
         });
     }
 
@@ -92,15 +96,19 @@ export class BaseGameScene extends Scene {
         const config = this.getMapConfig();
 
         const map = this.make.tilemap({ key: config.mapKey });
-        const tileset = map.addTilesetImage(config.tilesetName, config.tilesetKey);
-        const collisionLayer = map.createLayer('collisions', tileset, 0, 0);
+        const tileset = map.addTilesetImage(
+            config.tilesetName,
+            config.tilesetKey,
+        );
+        const collisionLayer = map.createLayer("collisions", tileset, 0, 0);
 
         // The Tiled collision grid is the source of truth for world dimensions.
         // Fit the artwork to that exact grid so the collision cells and image stay aligned.
-        this.background = this.add.image(0, 0, config.backgroundKey)
+        this.background = this.add
+            .image(0, 0, config.backgroundKey)
             .setOrigin(0, 0)
             .setDisplaySize(map.widthInPixels, map.heightInPixels)
-            .setName('background')
+            .setName("background")
             .setDepth(-10);
         this.worldContainer.add(this.background);
 
@@ -124,8 +132,13 @@ export class BaseGameScene extends Scene {
                 const debugGraphics = this.add.graphics().setAlpha(0.7);
                 collisionLayer.renderDebug(debugGraphics, {
                     tileColor: null,
-                    collidingTileColor: new Phaser.Display.Color(255, 0, 0, 128),
-                    faceColor: new Phaser.Display.Color(0, 255, 0, 255)
+                    collidingTileColor: new Phaser.Display.Color(
+                        255,
+                        0,
+                        0,
+                        128,
+                    ),
+                    faceColor: new Phaser.Display.Color(0, 255, 0, 255),
                 });
             }
         }
@@ -138,11 +151,21 @@ export class BaseGameScene extends Scene {
      */
     setupInput() {
         // TODO review input handling
-        this.wKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
-        this.aKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
-        this.sKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
-        this.dKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
-        this.mKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.M);
+        this.wKey = this.input.keyboard.addKey(
+            Phaser.Input.Keyboard.KeyCodes.W,
+        );
+        this.aKey = this.input.keyboard.addKey(
+            Phaser.Input.Keyboard.KeyCodes.A,
+        );
+        this.sKey = this.input.keyboard.addKey(
+            Phaser.Input.Keyboard.KeyCodes.S,
+        );
+        this.dKey = this.input.keyboard.addKey(
+            Phaser.Input.Keyboard.KeyCodes.D,
+        );
+        this.mKey = this.input.keyboard.addKey(
+            Phaser.Input.Keyboard.KeyCodes.M,
+        );
     }
 
     /**
@@ -152,13 +175,13 @@ export class BaseGameScene extends Scene {
     addPlayer(playerData) {
         const newPlayer = createPlayer(this, playerData, {
             addCollision: true,
-            collisionLayer: this.collisionLayer
+            collisionLayer: this.collisionLayer,
         });
         newPlayer.id = playerData.id;
         newPlayer.alive = true;
 
         // Scale up sprites for lobby scene to match smaller map size
-        if (this.scene.key === 'WaitingLobby') {
+        if (this.scene.key === "WaitingLobby") {
             newPlayer.setScale(0.3);
         }
 
@@ -166,7 +189,10 @@ export class BaseGameScene extends Scene {
 
         // Save spawn position
         if (!this.spawnPositions[playerData.id]) {
-            this.spawnPositions[playerData.id] = { x: playerData.x, y: playerData.y };
+            this.spawnPositions[playerData.id] = {
+                x: playerData.x,
+                y: playerData.y,
+            };
         }
 
         return newPlayer;
@@ -192,12 +218,21 @@ export class BaseGameScene extends Scene {
         const playerId = sessionStorage.getItem("playerId");
         const socket = socketService.getSocket();
 
-        console.log("Fetching room data for playerId:", playerId, "socket id:", socket?.id);
+        console.log(
+            "Fetching room data for playerId:",
+            playerId,
+            "socket id:",
+            socket?.id,
+        );
 
         const response = await fetch(apiUrl(`/player/room/${playerId}`));
         if (!response.ok) {
-            const errBody = await response.text().catch(() => '');
-            console.error("Failed to fetch player room:", response.status, errBody);
+            const errBody = await response.text().catch(() => "");
+            console.error(
+                "Failed to fetch player room:",
+                response.status,
+                errBody,
+            );
             return;
         }
         const data = await response.json();
@@ -215,13 +250,13 @@ export class BaseGameScene extends Scene {
             id: data.player.id,
             x: data.player.state.x,
             y: data.player.state.y,
-            color: data.player.color
+            color: data.player.color,
         });
         this.playerObj = data.player;
         console.log("Created own player sprite:", this.player, this.players);
 
         // Set camera zoom based on scene type
-        const zoom = this.scene.key === 'WaitingLobby' ? 1 : 2.2;
+        const zoom = this.scene.key === "WaitingLobby" ? 1 : 2.2;
 
         this.cameras.main.setZoom(zoom);
         this.cameras.main.startFollow(this.player, false, 0.12, 0.12);
@@ -235,7 +270,7 @@ export class BaseGameScene extends Scene {
                 id: player.id,
                 x: player.state.x,
                 y: player.state.y,
-                color: player.color
+                color: player.color,
             });
         });
     }
@@ -263,7 +298,7 @@ export class BaseGameScene extends Scene {
                 id: data.player.id,
                 x: data.player.state.x,
                 y: data.player.state.y,
-                color: data.player.color
+                color: data.player.color,
             });
         };
 
@@ -281,20 +316,20 @@ export class BaseGameScene extends Scene {
                 player.y = data.y;
             }
 
-            if (data.d) player.flipX = data.d === 'left';
+            if (data.d) player.flipX = data.d === "left";
 
             if (!player.anims) return;
             if (data.moving) {
-                if (!player.anims.isPlaying) player.anims.play('walk');
+                if (!player.anims.isPlaying) player.anims.play("walk");
             } else {
                 player.anims.stop();
-                player.setTexture('idleImage');
+                player.setTexture("idleImage");
             }
         };
 
-        socket.on('player:joined', this._onPlayerJoined);
-        socket.on('player:left', this._onPlayerLeft);
-        socket.on('player:moved', this._onPlayerMoved);
+        socket.on("player:joined", this._onPlayerJoined);
+        socket.on("player:left", this._onPlayerLeft);
+        socket.on("player:moved", this._onPlayerMoved);
 
         this._socketListenersAdded = true;
     }
@@ -305,9 +340,12 @@ export class BaseGameScene extends Scene {
     cleanupSocketListeners() {
         if (this.socket && this._socketListenersAdded) {
             // Remove only the handlers we added
-            if (this._onPlayerJoined) this.socket.off('player:joined', this._onPlayerJoined);
-            if (this._onPlayerLeft) this.socket.off('player:left', this._onPlayerLeft);
-            if (this._onPlayerMoved) this.socket.off('player:moved', this._onPlayerMoved);
+            if (this._onPlayerJoined)
+                this.socket.off("player:joined", this._onPlayerJoined);
+            if (this._onPlayerLeft)
+                this.socket.off("player:left", this._onPlayerLeft);
+            if (this._onPlayerMoved)
+                this.socket.off("player:moved", this._onPlayerMoved);
 
             // clear refs
             this._onPlayerJoined = null;
@@ -325,9 +363,15 @@ export class BaseGameScene extends Scene {
         this.ui = this.add.container(0, 0).setScrollFactor(0).setDepth(1000);
         this.worldContainer = this.add.container(0, 0).setDepth(0);
         this.players = {};
+        this.ghosts = {};
         this.spawnPositions = {};
         // Track spawn positions for each player
-        const uiCam = this.cameras.add(0, 0, this.scale.width, this.scale.height);
+        const uiCam = this.cameras.add(
+            0,
+            0,
+            this.scale.width,
+            this.scale.height,
+        );
         uiCam.setScroll(0, 0);
         uiCam.setZoom(1);
         uiCam.ignore(this.worldContainer);
@@ -342,7 +386,7 @@ export class BaseGameScene extends Scene {
         this.setupSocketListeners();
         await this.fetchAndSetupPlayers();
         console.log("Finished Setting Up Players: ", this.player);
-        EventBus.emit('current-scene-ready', this);
+        EventBus.emit("current-scene-ready", this);
     }
 
     /**
@@ -356,35 +400,51 @@ export class BaseGameScene extends Scene {
             this.player.body.setVelocity(0, 0);
             if (!this.isGhost && this.player.anims.isPlaying) {
                 this.player.anims.stop();
-                this.player.setTexture('idleImage');
+                this.player.setTexture("idleImage");
             }
 
             // Notify other clients once that this player has stopped moving.
             if (this.wasMoving && this.socket && this.playerObj && this.room) {
-                this.socket.emit('player:move', {
+                this.socket.emit("player:move", {
                     id: this.playerObj.id,
                     x: this.player.x,
                     y: this.player.y,
                     roomId: this.room.id,
                     d: this.playerObj.state?.d,
-                    moving: false
+                    moving: false,
                 });
             }
             this.wasMoving = false;
             return;
         }
 
+        // Ghost dùng logic riêng: bay lượn, không bị chặn bởi alive
+        if (this.isGhost) {
+            this.handleGhostMovement();
+            return;
+        }
+
         // Reset velocity each frame
         this.player.body.setVelocity(0, 0);
 
-        const speed = this.scene.key === 'WaitingLobby' ? 350 : 100;
+        const speed = this.scene.key === "WaitingLobby" ? 350 : 100;
         let vx = 0;
         let vy = 0;
 
-        if (this.wKey.isDown) { vy = -speed; }
-        if (this.sKey.isDown) { vy = speed; }
-        if (this.aKey.isDown) { vx = -speed; this.playerObj.state.d = 'left'; }
-        if (this.dKey.isDown) { vx = speed; this.playerObj.state.d = 'right'; }
+        if (this.wKey.isDown) {
+            vy = -speed;
+        }
+        if (this.sKey.isDown) {
+            vy = speed;
+        }
+        if (this.aKey.isDown) {
+            vx = -speed;
+            this.playerObj.state.d = "left";
+        }
+        if (this.dKey.isDown) {
+            vx = speed;
+            this.playerObj.state.d = "right";
+        }
 
         // Normalize diagonal movement
         if (vx !== 0 && vy !== 0) {
@@ -399,16 +459,15 @@ export class BaseGameScene extends Scene {
             else if (vx > 0) this.player.flipX = false;
         }
 
-
         const isMoving = vx !== 0 || vy !== 0;
         if (isMoving) {
             if (!this.player.anims.isPlaying) {
-                this.player.anims.play('walk');
+                this.player.anims.play("walk");
             }
         } else {
             if (this.player.anims.isPlaying) {
                 this.player.anims.stop();
-                this.player.setTexture('idleImage');
+                this.player.setTexture("idleImage");
             }
         }
 
@@ -416,13 +475,13 @@ export class BaseGameScene extends Scene {
         if (isMoving || this.wasMoving) {
             this.time.delayedCall(0, () => {
                 if (!this.player || !this.socket) return;
-                this.socket.emit('player:move', {
+                this.socket.emit("player:move", {
                     id: this.playerObj.id,
                     x: this.player.x,
                     y: this.player.y,
                     roomId: this.room.id,
                     d: this.playerObj.state.d,
-                    moving: isMoving
+                    moving: isMoving,
                 });
             });
         }
