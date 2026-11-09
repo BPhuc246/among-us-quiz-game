@@ -1,5 +1,6 @@
 import { PlayersManager } from "../managers/players.manager.js";
 import { RoomsManager } from "../managers/rooms.manager.js";
+import { TasksManager } from "../managers/tasks.manager.js";
 
 /**
  * @typedef {{id: string, name: string, color: string}} RegisterData
@@ -27,6 +28,7 @@ export const registerRoomEvents = (io, socket) => {
     const playerRegister = (data) => {
         console.log("Player register received:", data);
         PlayersManager.createPlayer(data.id, data.name, data.color);
+        socket.data.playerId = data.id;
         socket.emit("player:registered", { playerId: data.id });
     };
 
@@ -56,6 +58,10 @@ export const registerRoomEvents = (io, socket) => {
             data.roomId,
             data.questions,
         );
+        if (!Array.isArray(data.questions) || questions.length === 0 || questions.length !== data.questions.length) {
+            socket.emit("room:join:error", { message: "JSON cần có câu hỏi hợp lệ, id duy nhất, ít nhất 2 lựa chọn khác nhau và đáp án nằm trong lựa chọn." });
+            return;
+        }
         const room = RoomsManager.createRoom(data.roomId, player, questions);
         // Không gửi đáp án cho client
         io.emit("room:created", {
@@ -143,10 +149,13 @@ export const registerRoomEvents = (io, socket) => {
         }
 
         const { deleted } = RoomsManager.players.remove(roomId, player);
+        const remainingRoom = RoomsManager.fetchRoom(roomId);
+        if (remainingRoom?.started) io.to(roomId).emit("game:task-progress", { roomId, ...TasksManager.progress(remainingRoom) });
         PlayersManager.resetPlayer(data.playerId);
         const win = RoomsManager.checkWin(roomId);
         console.log("Win condition check after player leave:", win);
         if (win !== null) {
+            remainingRoom.started = false;
             io.to(roomId).emit("game:ended", { roomId, isImposter: win });
         }
         io.to(roomId).emit("player:left", { playerId: player.id });
@@ -174,6 +183,11 @@ export const registerRoomEvents = (io, socket) => {
             return;
         }
         console.log("Room data for game start:", room);
+        if (room.started || socket.data.playerId !== room.host.id || !socket.rooms.has(room.id)) return;
+        if (!room.questions.length) {
+            socket.emit("game:notif", { message: "Cần thêm câu hỏi trước khi bắt đầu ván chơi." });
+            return;
+        }
         if (Object.values(room.players).length <= 1) {
             console.error(
                 "Not enough players in room, cannot start game:",
@@ -193,6 +207,7 @@ export const registerRoomEvents = (io, socket) => {
             roomId: data.roomId,
             questions: room.questions,
         });
+        io.to(data.roomId).emit("game:task-progress", { roomId: room.id, ...TasksManager.progress(room) });
     };
 
     /**
@@ -221,12 +236,15 @@ export const registerRoomEvents = (io, socket) => {
             if (player && player.roomId) {
                 const roomId = player.roomId;
                 const { deleted } = RoomsManager.players.remove(roomId, player);
+                const remainingRoom = RoomsManager.fetchRoom(roomId);
+                if (remainingRoom?.started) io.to(roomId).emit("game:task-progress", { roomId, ...TasksManager.progress(remainingRoom) });
                 socket.to(roomId).emit("player:left", { playerId: player.id });
                 PlayersManager.deletePlayer(playerId);
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
                 if (win !== null) {
+                    remainingRoom.started = false;
                     io.to(roomId).emit("game:ended", {
                         roomId,
                         isImposter: win,
@@ -252,12 +270,15 @@ export const registerRoomEvents = (io, socket) => {
             const roomId = player.roomId;
             if (roomId) {
                 const { deleted } = RoomsManager.players.remove(roomId, player);
+                const remainingRoom = RoomsManager.fetchRoom(roomId);
+                if (remainingRoom?.started) io.to(roomId).emit("game:task-progress", { roomId, ...TasksManager.progress(remainingRoom) });
                 socket.to(roomId).emit("player:left", { playerId: player.id });
                 PlayersManager.deletePlayer(data.playerId);
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
                 if (win !== null) {
+                    remainingRoom.started = false;
                     io.to(roomId).emit("game:ended", {
                         roomId,
                         isImposter: win,

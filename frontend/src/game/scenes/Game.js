@@ -6,6 +6,30 @@ import {EventBus} from "../EventBus.js";
 import { handleImposter, handleImposterMovement } from "../utils/imposter.js";
 import { setupVisionSystem, disableVisionSystem, updateVisionSystem, enableVisionSystem} from "../utils/vision.js";
 import { TaskManager } from "../tasks/TaskManager.js";
+import { EventBus } from "../EventBus.js";
+import {
+    setupQuizTasks,
+    updateQuizTasks,
+    cleanupQuizTasks,
+} from "../utils/quizTasks.js";
+import {
+    addDeadBody,
+    clearDeadBodies,
+    setupBodyReporting,
+    updateBodyReporting,
+    cleanupBodyReporting,
+} from "../utils/bodyReporting.js";
+import {
+    handleImposter,
+    handleImposterMovement,
+    cleanupImposter,
+} from "../utils/imposter.js";
+import {
+    setupVisionSystem,
+    disableVisionSystem,
+    updateVisionSystem,
+    enableVisionSystem,
+} from "../utils/vision.js";
 
 export class Game extends BaseGameScene {
 
@@ -69,6 +93,16 @@ export class Game extends BaseGameScene {
         this.load.atlas('death', 'assets/death/texture.png', 'assets/death/texture.json');
         this.load.image('deadBody', 'assets/sprites/Base/Dead0042.png');
         this.load.image('meeting', '/assets/icons/useIcon.png');
+        this.preloadGhostAssets();
+        this.preloadKillAssets();
+        this.load.image("kill", "assets/icons/kill_icon.png");
+        this.load.atlas(
+            "death",
+            "assets/death/texture.png",
+            "assets/death/texture.json",
+        );
+        this.load.image("report", "assets/icons/reportBtn.png");
+        this.load.image("meeting", "/assets/icons/useIcon.png");
     }
 
     /**
@@ -77,6 +111,8 @@ export class Game extends BaseGameScene {
     create() {
         // stored promise for imposter role assignment
         const prom1 = this.createCommon();
+        this.deadBodies = new Map();
+        this.meetingActive = false;
         this.socket = socketService.getSocket();
         this.input.on('pointerdown', (pointer) => {
             console.log(
@@ -87,6 +123,13 @@ export class Game extends BaseGameScene {
 
         this.game.renderer.pipelines.add('GrayScale', new GrayPipeline(this.game));
         this.game.renderer.pipelines.add('VisionRadius', new VisionRadiusPipeline(this.game));
+        const pipelines = this.game.renderer.pipelines;
+        if (!pipelines.has("GrayScale")) {
+            pipelines.add("GrayScale", new GrayPipeline(this.game));
+        }
+        if (!pipelines.has("VisionRadius")) {
+            pipelines.add("VisionRadius", new VisionRadiusPipeline(this.game));
+        }
 
         this.closest = { player: null, distance: 60 };
 
@@ -99,7 +142,13 @@ export class Game extends BaseGameScene {
 
         // Wait for both player setup and imposter role assignment before initializing imposter mechanics
         Promise.all([prom1, this.imposterProm]).then((results) => {
-            console.log("Creating imposter elements", prom1, this.imposterProm, results);
+            if (!this.sys.isActive() || !this.player?.body) return;
+            console.log(
+                "Creating imposter elements",
+                prom1,
+                this.imposterProm,
+                results,
+            );
             this.imposter = results[1];
             handleImposter(this);
             setupVisionSystem(this);
@@ -108,6 +157,10 @@ export class Game extends BaseGameScene {
 
             // Task 3: initialize the five Skeld task highlights and interaction zones.
             this.taskManager = new TaskManager(this);
+            setupQuizTasks(this);
+            setupBodyReporting(this);
+            for (const body of Object.values(this.room.deadBodies || {}))
+                addDeadBody(this, body, setPlayerColor);
         });
     }
 
@@ -124,13 +177,22 @@ export class Game extends BaseGameScene {
         if (!this.taskModalOpen) {
             handleImposterMovement(this);
         }
+        updateQuizTasks(this);
+        updateBodyReporting(this);
+        handleImposterMovement(this);
 
         // Update vision system
         if (this.visionEnabled && this.player) {
             updateVisionSystem(this);
         }
 
-        if (this.physics.overlap(this.player, this.meetingZone)) {
+        if (
+            this.meetingZone &&
+            !this.isGhost &&
+            !this.meetingActive &&
+            !this.quizOpen &&
+            this.physics.overlap(this.player, this.meetingZone)
+        ) {
             if (!this.isInMeetingZone) {
                 this.isInMeetingZone = true;
                 this.meetingBtn.visible = true;
@@ -148,6 +210,9 @@ export class Game extends BaseGameScene {
         this.taskManager?.destroy();
         this.taskManager = null;
 
+        cleanupBodyReporting(this);
+        cleanupQuizTasks(this);
+        cleanupImposter(this);
         if (this.socket) {
             if (this.onPlayerKilled) {
                 this.socket.off('player:killed', this.onPlayerKilled);
@@ -174,6 +239,7 @@ export class Game extends BaseGameScene {
      * Create death animation for killed players
      */
     createAnimations() {
+        if (this.anims.exists("deathAnim")) return;
         this.anims.create({
             key: 'deathAnim',
             frames: this.anims.generateFrameNames('death', {
@@ -227,11 +293,38 @@ export class Game extends BaseGameScene {
                     .setDepth(500);
                 deathAnim.destroy();
             });
+            if (isLocalTarget) {
+                EventBus.emit("quiz:cancel");
+                // Mình bị giết: hiện kill cinematic (màu imposter + victim) rồi chuyển sang ghost
+                const killerColor = data.color || data.killerColor;
+                const victimColor = this.playerObj?.color;
+                this.showKillScreen(killerColor, victimColor);
+                this.enterGhostMode();
+                disableVisionSystem(this);
+            } else if (this.isGhost) {
+                // Mình đã chết: vẫn thấy người chết khác dưới dạng ghost
+                const sprite = this.players[targetId];
+                delete this.players[targetId];
+                if (sprite) {
+                    this.makeGhost(sprite);
+                    this.ghosts[targetId] = sprite;
+                }
+            } else {
+                // Người còn sống: người bị giết biến mất hoàn toàn
+                if (killedSprite) killedSprite.destroy();
+                delete this.players[targetId];
+            }
+
+            if (this.room?.players[targetId])
+                this.room.players[targetId].isAlive = false;
+            addDeadBody(this, data, setPlayerColor);
         };
 
         this.onMeetingStarted = (data) => {
             console.log("Meeting started event received:", data);
             this.meetingActive = true;
+            this.reportBtn?.setVisible(false);
+            this.room.players = data.players || this.room.players;
             this.physics.pause(); // Pause physics
             disableVisionSystem(this);
             console.log("Meeting started, players teleported to spawn.", data, this.room.players);
@@ -246,9 +339,25 @@ export class Game extends BaseGameScene {
         this.onMeetingEnded = (data) => {
             console.log("Meeting ended event received:", data);
             this.meetingActive = false;
+            clearDeadBodies(this);
+            this.room.deadBodies = {};
             this.physics.resume();
             enableVisionSystem(this);
             this.teleportPlayersToSpawn();
+            const ejectedId = data.results?.ejectedId;
+            if (ejectedId === this.playerObj?.id) {
+                this.enterGhostMode();
+                disableVisionSystem(this);
+            } else if (ejectedId) {
+                const sprite = this.players[ejectedId];
+                if (sprite && this.isGhost) {
+                    delete this.players[ejectedId];
+                    this.makeGhost(sprite);
+                    this.ghosts[ejectedId] = sprite;
+                } else {
+                    this.removePlayer(ejectedId);
+                }
+            }
 
             // Recieved by react
             EventBus.emit('meeting:ended', {

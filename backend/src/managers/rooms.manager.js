@@ -1,4 +1,8 @@
 import { PlayersManager } from "./players.manager.js";
+import { TasksManager } from "./tasks.manager.js";
+
+// Clear floor below the emergency table on the current Skeld collision map.
+export const GAME_SPAWN = Object.freeze({ x: 560, y: 180 });
 
 /**
  * @typedef {import('../types/room.type.js').Player} Player
@@ -36,7 +40,6 @@ const rooms = {
 let meetingEndTimeout = null;
 
 /**
- * Kiểm tra một giá trị có đúng dạng Question từ frontend hay không (roomId được bỏ qua vì sẽ được gán lại).
  * @param {unknown} q
  * @returns {boolean}
  */
@@ -44,20 +47,29 @@ const isValidQuestion = (q) => {
     if (!q || typeof q !== "object") return false;
     const o = /** @type {Record<string, unknown>} */ (q);
 
-    const options = o.options;
-    const validOptions =
-        Array.isArray(options) &&
-        (options.every((x) => typeof x === "string") ||
-            options.every((x) => typeof x === "number"));
+    if (
+        typeof o.id !== "string" ||
+        o.id.trim().length === 0 ||
+        typeof o.title !== "string" ||
+        typeof o.description !== "string" ||
+        typeof o.explain !== "string" ||
+        (typeof o.answer !== "string" && typeof o.answer !== "number")
+    ) {
+        return false;
+    }
 
-    return (
-        typeof o.id === "string" &&
-        typeof o.title === "string" &&
-        typeof o.description === "string" &&
-        typeof o.explain === "string" &&
-        (typeof o.answer === "string" || typeof o.answer === "number") &&
-        validOptions
-    );
+    /** @type {unknown[]} */
+    const options = Array.isArray(o.options) ? o.options : [];
+    if (options.length < 2) return false;
+    if (new Set(options).size !== options.length) return false;
+
+    const allStrings = options.every((x) => typeof x === "string");
+    const allNumbers = options.every((x) => typeof x === "number");
+    if (!allStrings && !allNumbers) return false;
+
+    /** @type {unknown[]} */
+    const opts = options;
+    return opts.includes(o.answer);
 };
 
 export const RoomsManager = {
@@ -69,8 +81,14 @@ export const RoomsManager = {
      */
     parseQuestions(roomId, raw) {
         if (!Array.isArray(raw)) return [];
+        const seen = new Set();
         return raw
             .filter(isValidQuestion)
+            .filter((q) => {
+                if (seen.has(q.id)) return false;
+                seen.add(q.id);
+                return true;
+            })
             .map((q) => /** @type {Question} */ ({ ...q, roomId }));
     },
 
@@ -92,7 +110,8 @@ export const RoomsManager = {
                 explain,
             }),
         );
-        return { ...room, questions };
+        const { taskCompletions, taskAssignments, ...publicRoom } = room;
+        return { ...publicRoom, questions };
     },
 
     players: {
@@ -291,6 +310,7 @@ export const RoomsManager = {
         const room = rooms[roomId];
         if (!room) return undefined;
         room.started = true;
+        room.deadBodies = {};
         const players = Object.values(room.players);
 
         if (players.length === 0) {
@@ -302,8 +322,7 @@ export const RoomsManager = {
         players.forEach((p) => {
             p.isAlive = true;
             PlayersManager.updatePlayerState(p.id, {
-                x: 560,
-                y: 150,
+                ...GAME_SPAWN,
                 d: "left",
                 moving: false,
             });
@@ -311,6 +330,7 @@ export const RoomsManager = {
 
         const idx = Math.floor(Math.random() * players.length);
         room.imposter = players[idx].id;
+        TasksManager.initialize(room);
         return room;
         // TODO filter imposter before sending room
     },
@@ -337,6 +357,9 @@ export const RoomsManager = {
         const alivePlayers = players.filter((p) => p.isAlive);
         const aliveImposters = alivePlayers.filter((p) => p.id === imposterId);
         const aliveCrewmates = alivePlayers.filter((p) => p.id !== imposterId);
+        const progress = TasksManager.progress(room);
+        if (progress.total > 0 && progress.completed === progress.total)
+            return false;
 
         console.log(
             `Alive Imposters: ${aliveImposters.length}, Alive Crewmates: ${aliveCrewmates.length}`,

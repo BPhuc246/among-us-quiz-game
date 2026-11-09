@@ -34,14 +34,14 @@ function App() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (window.showToast) {
+      if (window.showToast && !socketService.getSocket()?.connected) {
         window.showToast(
-          'Server might be experiencing slow loading times. Please be patient.',
+          'Đang chờ kết nối máy chủ…',
           'warning',
-          0
+          4000
         );
       }
-    }, 500);
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, []);
@@ -198,6 +198,7 @@ function App() {
   return (
     <div id="app">
       <ToastContainer />
+      <QuizTasks socket={socket} roomId={roomId} active={currentPage === PAGES.GAME} />
       {error && <p className={styles.error}>{error}</p>}
       {debug.current && <div className={`${styles.statusBadge} ${isConnected ? styles.connected : styles.disconnected}`}>
         {isConnected ? 'Connected' : 'Disconnected'}

@@ -3,6 +3,19 @@ import { socketService } from '../../services/socket.js';
 import { apiUrl } from '../../utils/urls.js';
 import { EventBus } from '../EventBus';
 import { createPlayer } from '../utils/playerFactory.js';
+import { Scene } from "phaser";
+import { socketService } from "../../services/socket.js";
+import { apiUrl } from "../../utils/urls.js";
+import { EventBus } from "../EventBus";
+import { createPlayer, setPlayerColor } from "../utils/playerFactory.js";
+
+const GHOST_FRAME_COUNT = 48;
+const GHOST_ASSET_DIR = "/assets/sprites/Base/ghost";
+
+const KILL_FRAME_COUNT = 48;
+const KILL_SCREEN_DURATION_MS = 3000;
+const KILL_IMPOSTER_DIR = "assets/sprites/Base/imposterkills/alien";
+const KILL_VICTIM_DIR = "assets/sprites/Base/deaths/alien";
 
 /**
  * Base class for shared logic of player management, movement, and socket events
@@ -308,6 +321,7 @@ export class BaseGameScene extends Scene {
      * Common create logic for all game scenes
      */
     async createCommon() {
+        this.events.once("shutdown", this.shutdown, this);
         this.ui = this.add.container(0, 0).setScrollFactor(0).setDepth(1000);
         this.worldContainer = this.add.container(0, 0).setDepth(0);
         this.players = {};
@@ -321,6 +335,8 @@ export class BaseGameScene extends Scene {
         this.cameras.main.ignore(this.ui);
 
         this.createWalkAnimation();
+        this.createGhostAnimation();
+        this.createKillAnimations();
         this.setupMap();
         this.setupInput();
         this.setupSocketListeners();
@@ -338,7 +354,7 @@ export class BaseGameScene extends Scene {
         // Freeze the local player during meetings and while the quiz modal is open.
         if (this.meetingActive || this.taskModalOpen) {
             this.player.body.setVelocity(0, 0);
-            if (this.player.anims.isPlaying) {
+            if (!this.isGhost && this.player.anims.isPlaying) {
                 this.player.anims.stop();
                 this.player.setTexture('idleImage');
             }
@@ -413,6 +429,291 @@ export class BaseGameScene extends Scene {
         this.wasMoving = isMoving;
     }
 
+    /**
+     * Load 48 frame ghost (ghost0001.png → ghost0048.png)
+     */
+    preloadGhostAssets() {
+        for (let i = 1; i <= GHOST_FRAME_COUNT; i++) {
+            const key = `ghost${String(i).padStart(4, "0")}`;
+            this.load.image(key, `${GHOST_ASSET_DIR}/${key}.png`);
+        }
+    }
+
+    /**
+     * Animation bay lượn cho ghost
+     */
+    createGhostAnimation() {
+        if (this.anims.exists("ghostFloat")) return;
+        if (!this.textures.exists("ghost0001")) return;
+
+        const frames = [];
+        for (let i = 1; i <= GHOST_FRAME_COUNT; i++) {
+            frames.push({ key: `ghost${String(i).padStart(4, "0")}` });
+        }
+        this.anims.create({
+            key: "ghostFloat",
+            frames,
+            frameRate: 12,
+            repeat: -1,
+        });
+    }
+
+    /**
+     * Load kill screen background + 48-frame imposter & victim kill animations
+     */
+    preloadKillAssets() {
+        this.load.image("kill_screen", "assets/map/kill_screen.png");
+        this.load.audio("alien_kill", "sound/alien_kill.mp3");
+
+        for (let i = 1; i <= KILL_FRAME_COUNT; i++) {
+            const pad = String(i).padStart(4, "0");
+            this.load.image(
+                `kill_imposter${pad}`,
+                `${KILL_IMPOSTER_DIR}/killalien_imposter${pad}.png`,
+            );
+            this.load.image(
+                `kill_victim${pad}`,
+                `${KILL_VICTIM_DIR}/killalien_victim${pad}.png`,
+            );
+        }
+    }
+
+    /**
+     * Create one-shot kill animations (48 frames ~ 3s)
+     */
+    createKillAnimations() {
+        if (this.anims.exists("killImposter")) return;
+        if (!this.textures.exists("kill_imposter0001")) return;
+
+        const imposterFrames = [];
+        const victimFrames = [];
+        for (let i = 1; i <= KILL_FRAME_COUNT; i++) {
+            const pad = String(i).padStart(4, "0");
+            imposterFrames.push({ key: `kill_imposter${pad}` });
+            victimFrames.push({ key: `kill_victim${pad}` });
+        }
+
+        // 48 frames in 3 seconds => ~16 fps
+        const frameRate = KILL_FRAME_COUNT / (KILL_SCREEN_DURATION_MS / 1000);
+
+        this.anims.create({
+            key: "killImposter",
+            frames: imposterFrames,
+            frameRate,
+            repeat: 0,
+        });
+        this.anims.create({
+            key: "killVictim",
+            frames: victimFrames,
+            frameRate,
+            repeat: 0,
+        });
+    }
+
+    /**
+     * Biến một sprite thành ghost: vẫn va chạm tường của bản đồ, đổi texture, bay lượn
+     * @param {Phaser.Physics.Arcade.Sprite} sprite
+     */
+    makeGhost(sprite) {
+        sprite.alive = false;
+        sprite.isGhost = true;
+
+        const sx = sprite.scaleX;
+        const sy = sprite.scaleY;
+        sprite.clearTint();
+        sprite.setTexture("ghost0001");
+        sprite.setScale(sx, sy);
+
+        if (sprite.body) {
+            // Bật lại va chạm (không còn tắt như phiên bản trước)
+            sprite.body.checkCollision.none = false;
+            // Không cho ghost ra khỏi biên của thế giới game
+            sprite.setCollideWorldBounds(true);
+        }
+
+        // Ghost không đi xuyên tường: thêm collider với lớp va chạm của map
+        if (this.collisionLayer && sprite.body) {
+            this.physics.add.collider(sprite, this.collisionLayer);
+        }
+
+        if (this.anims.exists("ghostFloat")) {
+            sprite.anims.play("ghostFloat", true);
+        }
+    }
+
+    /**
+     * Full-screen kill cinematic (only on the victim's client).
+     * Shows kill_screen background + colored imposter & victim animations for 3s.
+     * @param {string} [killerColor] Hex color of the imposter
+     * @param {string} [victimColor] Hex color of the killed crewmate
+     */
+    showKillScreen(killerColor, victimColor) {
+        if (!this.textures.exists("kill_screen")) {
+            // Fallback if assets not loaded
+            const box = this.add
+                .rectangle(
+                    this.scale.width / 2,
+                    this.scale.height / 2,
+                    120,
+                    120,
+                    0xff0000,
+                )
+                .setDepth(2001)
+                .setScrollFactor(0);
+            this.ui.add(box);
+            this.time.delayedCall(KILL_SCREEN_DURATION_MS, () => box.destroy());
+            return;
+        }
+
+        const w = this.scale.width;
+        const h = this.scale.height;
+        const cx = w / 2;
+        const cy = h / 2;
+
+        // Full-screen background (behind the characters)
+        const bg = this.add
+            .image(cx, cy, "kill_screen")
+            .setDisplaySize(w, h)
+            .setDepth(2000)
+            .setScrollFactor(0);
+        this.ui.add(bg);
+
+        // Imposter (left) and victim (right) - side-by-side cinematic
+        const imposter = this.add
+            .sprite(cx - w * 0.08, cy, "kill_imposter0001")
+            .setDepth(2001)
+            .setScrollFactor(0)
+            .setScale(0.85);
+        const victim = this.add
+            .sprite(cx + w * 0.08, cy, "kill_victim0001")
+            .setDepth(2003)
+            .setScrollFactor(0)
+            .setScale(0.85);
+
+        this.ui.add(imposter);
+        this.ui.add(victim);
+
+        // Apply player colors via the same ColorSwap pipeline (reset blend so it doesn't overlay the kill bg)
+        if (killerColor) {
+            try {
+                setPlayerColor(this, imposter, killerColor);
+                imposter.setBlendMode(Phaser.BlendModes.NORMAL);
+            } catch (e) {
+                console.warn("Failed to color kill imposter sprite", e);
+            }
+        }
+        if (victimColor) {
+            try {
+                setPlayerColor(this, victim, victimColor);
+                victim.setBlendMode(Phaser.BlendModes.NORMAL);
+            } catch (e) {
+                console.warn("Failed to color kill victim sprite", e);
+            }
+        }
+        // Ensure animations exist then play
+        this.createKillAnimations();
+        if (this.anims.exists("killImposter")) {
+            imposter.anims.play("killImposter");
+        }
+        if (this.anims.exists("killVictim")) {
+            victim.anims.play("killVictim");
+        }
+
+        console.log("Audio exists?", this.cache.audio.exists("alien_kill"));
+        console.log("Sound locked?", this.sound.locked);
+
+        if (this.cache.audio.exists("alien_kill")) {
+            this.sound.play("alien_kill", { volume: 0.8 });
+        } else {
+            console.warn("Không tìm thấy alien_kill trong cache!");
+        }
+
+        const victimBaseY = victim.y;
+        victim.on("animationupdate", (anim, frame) => {
+            const frameNum = frame.index + 1;
+            if (frameNum >= 11 && frameNum <= 21) {
+                victim.y = victimBaseY - 30;
+            } else {
+                victim.y = victimBaseY;
+            }
+        });
+        // Cleanup after exactly 3 seconds
+        this.time.delayedCall(KILL_SCREEN_DURATION_MS, () => {
+            if (imposter && imposter.anims) imposter.anims.stop();
+            if (victim && victim.anims) victim.anims.stop();
+            bg.destroy();
+            imposter.destroy();
+            victim.destroy();
+        });
+    }
+
+    /**
+     * Chuyển người chơi local sang chế độ spectator
+     */
+    enterGhostMode() {
+        if (this.isGhost || !this.player || !this.playerObj) return;
+
+        this.isGhost = true;
+        const id = this.playerObj.id;
+        delete this.players[id];
+        this.ghosts[id] = this.player;
+        this.makeGhost(this.player);
+
+        this.wasMoving = false;
+
+        this.socket?.emit("player:spectate", {
+            roomId: this.room.id,
+            playerId: id,
+        });
+    }
+
+    /**
+     * Di chuyển của ghost (không va chạm tường)
+     */
+    handleGhostMovement() {
+        const speed = this.scene.key === "WaitingLobby" ? 350 : 150;
+        let vx = 0;
+        let vy = 0;
+
+        if (this.wKey.isDown) vy = -speed;
+        if (this.sKey.isDown) vy = speed;
+        if (this.aKey.isDown) vx = -speed;
+        if (this.dKey.isDown) vx = speed;
+
+        if (vx !== 0 && vy !== 0) {
+            vx *= 0.707;
+            vy *= 0.707;
+        }
+
+        this.player.body.setVelocity(vx, vy);
+        if (vx < 0) {
+            this.player.flipX = true;
+            this.playerObj.state.d = "left";
+        } else if (vx > 0) {
+            this.player.flipX = false;
+            this.playerObj.state.d = "right";
+        }
+
+        if (this.player.anims.currentAnim?.key !== "ghostFloat") {
+            this.player.anims.play("ghostFloat", true);
+        }
+
+        const isMoving = vx !== 0 || vy !== 0;
+        if (isMoving || this.wasMoving) {
+            this.time.delayedCall(0, () => {
+                if (!this.player || !this.socket) return;
+                this.socket.emit("player:move", {
+                    id: this.playerObj.id,
+                    x: this.player.x,
+                    y: this.player.y,
+                    roomId: this.room.id,
+                    d: this.playerObj.state.d,
+                    moving: isMoving,
+                });
+            });
+        }
+        this.wasMoving = isMoving;
+    }
 
     shutdown() {
         this.cleanupSocketListeners();
