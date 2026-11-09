@@ -1,5 +1,6 @@
 import { PlayersManager } from "./players.manager.js";
 import { TasksManager } from "./tasks.manager.js";
+import { toPublicQuestion } from "./questions.manager.js";
 
 // Clear floor below the emergency table on the current Skeld collision map.
 export const GAME_SPAWN = Object.freeze({ x: 560, y: 180 });
@@ -39,79 +40,47 @@ const rooms = {
 /** @type {ReturnType<typeof setTimeout> | null} */
 let meetingEndTimeout = null;
 
-/**
- * @param {unknown} q
- * @returns {boolean}
- */
-const isValidQuestion = (q) => {
-    if (!q || typeof q !== "object") return false;
-    const o = /** @type {Record<string, unknown>} */ (q);
-
-    if (
-        typeof o.id !== "string" ||
-        o.id.trim().length === 0 ||
-        typeof o.title !== "string" ||
-        typeof o.description !== "string" ||
-        typeof o.explain !== "string" ||
-        (typeof o.answer !== "string" && typeof o.answer !== "number")
-    ) {
-        return false;
-    }
-
-    /** @type {unknown[]} */
-    const options = Array.isArray(o.options) ? o.options : [];
-    if (options.length < 2) return false;
-    if (new Set(options).size !== options.length) return false;
-
-    const allStrings = options.every((x) => typeof x === "string");
-    const allNumbers = options.every((x) => typeof x === "number");
-    if (!allStrings && !allNumbers) return false;
-
-    /** @type {unknown[]} */
-    const opts = options;
-    return opts.includes(o.answer);
-};
-
 export const RoomsManager = {
     /**
-     * Chuẩn hóa danh sách câu hỏi thô từ frontend. Bỏ các câu hỏi không hợp lệ.
+     * Kiểm tra toàn bộ mảng câu hỏi thô và gán id, roomId.
+     * Trả về null nếu có dưới 2 câu hoặc có câu nào không hợp lệ.
      * @param {string} roomId
      * @param {unknown} raw
-     * @returns {Question[]}
+     * @returns {Question[]|null}
      */
     parseQuestions(roomId, raw) {
-        if (!Array.isArray(raw)) return [];
-        const seen = new Set();
-        return raw
-            .filter(isValidQuestion)
-            .filter((q) => {
-                if (seen.has(q.id)) return false;
-                seen.add(q.id);
-                return true;
-            })
-            .map((q) => /** @type {Question} */ ({ ...q, roomId }));
+        if (!Array.isArray(raw) || raw.length < 2) return null;
+
+        /** @type {unknown[]} */
+        const items = raw;
+        if (!items.every(isValidQuestionInput)) return null;
+
+        return items.map((q, index) => ({
+            id: `q${index + 1}`,
+            roomId,
+            title: q.title.trim(),
+            description: (q.description ?? "").trim(),
+            options: /** @type {string[] | number[]} */ ([...q.options]),
+            answer: q.answer,
+            explain: q.explain.trim(),
+        }));
     },
 
     /**
-     * Trả về room dành cho client: câu hỏi không còn đáp án.
+     * Room gửi cho client: không có imposter, không có nhiệm vụ của người khác,
+     * câu hỏi không có đáp án và lời giải.
      * @param {GameRoom|undefined} room
      * @returns {PublicGameRoom|undefined}
      */
     toPublicRoom(room) {
         if (!room) return undefined;
-        /** @type {PublicQuestion[]} */
-        const questions = room.questions.map(
-            ({ id, roomId, title, description, options, explain }) => ({
-                id,
-                roomId,
-                title,
-                description,
-                options,
-                explain,
-            }),
-        );
-        const { taskCompletions, taskAssignments, ...publicRoom } = room;
-        return { ...publicRoom, questions };
+        const publicRoom = {
+            ...room,
+            imposter: null,
+            questions: room.questions.map(toPublicQuestion),
+        };
+        delete publicRoom.taskState;
+        return publicRoom;
     },
 
     players: {
@@ -382,4 +351,38 @@ export const RoomsManager = {
 
         return null;
     },
+};
+
+/**
+ * Kiểm tra một câu hỏi thô do frontend gửi (chưa có id, roomId).
+ * @param {unknown} q
+ * @returns {q is import("../types/room.type.js").QuestionInput}
+ */
+const isValidQuestionInput = (q) => {
+    if (typeof q !== "object" || q === null) return false;
+    const o = /** @type {{[key: string]: unknown}} */ (q);
+
+    if (typeof o.title !== "string" || o.title.trim() === "") return false;
+    if (o.description !== undefined && typeof o.description !== "string")
+        return false;
+    if (typeof o.explain !== "string") return false;
+    if (typeof o.answer !== "string" && typeof o.answer !== "number")
+        return false;
+    if (!Array.isArray(o.options)) return false;
+
+    /** @type {unknown[]} */
+    const options = o.options;
+    if (options.length < 2) return false;
+
+    const allStrings = options.every(
+        (x) => typeof x === "string" && x.trim() !== "",
+    );
+    const allNumbers = options.every(
+        (x) => typeof x === "number" && Number.isFinite(x),
+    );
+    if (!allStrings && !allNumbers) return false;
+    if (new Set(options).size !== options.length) return false;
+
+    // includes dùng so sánh nghiêm ngặt: "96" không khớp 96
+    return options.includes(o.answer);
 };

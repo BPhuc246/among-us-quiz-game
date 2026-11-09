@@ -17,6 +17,18 @@
  */
 
 /**
+ * Câu hỏi frontend gửi khi tạo phòng (chưa có id, roomId).
+ * @typedef {{
+ *   title: string,
+ *   description?: string,
+ *   options: string[] | number[],
+ *   answer: string | number,
+ *   explain: string
+ * }} QuestionInput
+ */
+
+/**
+ * Câu hỏi backend lưu trong room, do server gán id và roomId.
  * @typedef {{
  *   id: string,
  *   roomId: string,
@@ -29,8 +41,8 @@
  */
 
 /**
- * Question gửi tới client, đã loại bỏ đáp án.
- * @typedef {Omit<Question, 'answer'>} PublicQuestion
+ * Câu hỏi gửi tới client: không có đáp án và lời giải.
+ * @typedef {Omit<Question, 'answer' | 'explain'>} PublicQuestion
  */
 
 /**
@@ -54,6 +66,14 @@
 
 /**
  * @typedef {{
+ *   assignments: {questionId: string, stationId: string}[],
+ *   revealed: number,
+ *   completed: string[]
+ * }} CrewTaskState
+ */
+
+/**
+ * @typedef {{
  *   id: string,
  *   started: boolean,
  *   imposter: (string|null),
@@ -61,8 +81,7 @@
  *   players: {[key: string]: Player},
  *   currentMeeting: MeetingState | null,
  *   questions: Question[],
- *   taskCompletions?: {[playerId: string]: string[]},
- *   taskAssignments?: {[playerId: string]: string[]},
+ *   taskState?: {[playerId: string]: CrewTaskState},
  *   deadBodies?: {[playerId: string]: {playerId: string, x: number, y: number, color: string}}
  * }} GameRoom
  */

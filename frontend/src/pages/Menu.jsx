@@ -135,6 +135,7 @@ export function Menu({ onJoinGame }) {
     const playerId = getPlayerId();
     socket.emit("player:unregister", { playerId });
   };
+
   const handleCreateRoom = () => {
     if (!isRegisteredRef.current) {
       setError("Please register first");
@@ -150,14 +151,14 @@ export function Menu({ onJoinGame }) {
       return;
     }
 
-    if (!Array.isArray(questions) || questions.length === 0) {
-      setError("Cần ít nhất 1 câu hỏi (dạng mảng JSON)");
+    if (!Array.isArray(questions) || questions.length < 2) {
+      setError("Cần ít nhất 2 câu hỏi (dạng mảng JSON)");
       return;
     }
 
     const newRoomId = generateRoomId();
     const playerId = getPlayerId();
-    console.log("Questions gửi lên:", questions, Array.isArray(questions));
+    console.log("Questions gửi lên:", questions);
 
     socket.emit("room:create", {
       hostId: playerId,
@@ -165,12 +166,6 @@ export function Menu({ onJoinGame }) {
       questions,
     });
   };
-
-  // const handleFetchRooms = () => {
-  //   fetchRooms()
-  //     .then(setRooms)
-  //     .catch((error) => console.error('Error fetching rooms:', error));
-  // };
 
   const handleJoinRoom = (roomId) => {
     if (!isRegisteredRef.current) {
@@ -288,12 +283,11 @@ export function Menu({ onJoinGame }) {
                   className={styles.questions}
                   placeholder={`[
   {
-    "id": "q1",
-    "title": "Câu hỏi",
-    "description": "Mô tả",
-    "options": ["A", "B", "C", "D"],
-    "answer": "A",
-    "explain": "Giải thích"
+    "title": "Hành tinh nào được gọi là Hành tinh Đỏ?",
+    "description": "Chọn đáp án đúng.",
+    "options": ["Trái Đất", "Sao Hỏa", "Sao Kim", "Sao Mộc"],
+    "answer": "Sao Hỏa",
+    "explain": "Sao Hỏa có bề mặt chứa nhiều oxit sắt."
   }
 ]`}
                   value={formData.questions}
