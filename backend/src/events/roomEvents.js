@@ -8,12 +8,15 @@ import { TasksManager } from "../managers/tasks.manager.js";
  * @typedef {{hostId: string, roomId: string, questions?: unknown}} RoomCreateData
  * @typedef {{playerId: string, roomId: string}} RoomJoinData
  * @typedef {{roomId: string}} GameStartData
- * @typedef {{roomId: string, playerId: string, message: string}} SendMessageData
+ * @typedef {{roomId: string, message: string}} SendMessageData
  */
 
 // Track socket to player mapping for cleanup on disconnect
 /** @type {{[socketId: string]: string}} */
 const socketToPlayerId = {};
+
+const CHAT_MAX_LENGTH = 200; // phải khớp với MAX_LENGTH ở frontend/src/components/Chat.jsx
+const CHAT_COOLDOWN_MS = 500;
 
 /**
  * @param {import('socket.io').Server} io
@@ -54,16 +57,25 @@ export const registerRoomEvents = (io, socket) => {
             console.error("Player not found for room creation:", data.hostId);
             return;
         }
+
         const questions = RoomsManager.parseQuestions(
             data.roomId,
             data.questions,
         );
-        if (!Array.isArray(data.questions) || questions.length === 0 || questions.length !== data.questions.length) {
-            socket.emit("room:join:error", { message: "JSON cần có câu hỏi hợp lệ, id duy nhất, ít nhất 2 lựa chọn khác nhau và đáp án nằm trong lựa chọn." });
+        if (!questions) {
+            socket.emit("room:join:error", {
+                message:
+                    "Danh sách câu hỏi không hợp lệ. Cần ít nhất 2 câu, mỗi câu có title, explain, options (ít nhất 2 lựa chọn, không trùng nhau) và answer nằm trong options.",
+            });
             return;
         }
+
         const room = RoomsManager.createRoom(data.roomId, player, questions);
-        // Không gửi đáp án cho client
+        if (!room) {
+            socket.emit("room:join:error", { message: "Mã phòng đã tồn tại." });
+            return;
+        }
+
         io.emit("room:created", {
             roomId: data.roomId,
             room: RoomsManager.toPublicRoom(room),
@@ -150,14 +162,21 @@ export const registerRoomEvents = (io, socket) => {
 
         const { deleted } = RoomsManager.players.remove(roomId, player);
         const remainingRoom = RoomsManager.fetchRoom(roomId);
-        if (remainingRoom?.started) io.to(roomId).emit("game:task-progress", { roomId, ...TasksManager.progress(remainingRoom) });
+        if (remainingRoom?.started) {
+            io.to(roomId).emit("game:task-progress", {
+                roomId,
+                ...TasksManager.progress(remainingRoom),
+            });
+        }
         PlayersManager.resetPlayer(data.playerId);
+
         const win = RoomsManager.checkWin(roomId);
         console.log("Win condition check after player leave:", win);
-        if (win !== null) {
+        if (win !== null && remainingRoom) {
             remainingRoom.started = false;
             io.to(roomId).emit("game:ended", { roomId, isImposter: win });
         }
+
         io.to(roomId).emit("player:left", { playerId: player.id });
         PlayersManager.setRoomId(player.id, null);
         socket.leave(roomId);
@@ -169,57 +188,119 @@ export const registerRoomEvents = (io, socket) => {
 
     /**
      * @param {GameStartData} data
-     * @returns {void}
+     * @returns {Promise<void>}
      */
-    const gameStart = (data) => {
+    const gameStart = async (data) => {
         console.log("Game start received:", data);
         const room = RoomsManager.fetchRoom(data.roomId);
         if (!room) {
-            console.error(
-                "Room not found or could not start game:",
-                data.roomId,
-            );
             socket.emit("game:notif", { message: "Room not found" });
             return;
         }
-        console.log("Room data for game start:", room);
-        if (room.started || socket.data.playerId !== room.host.id || !socket.rooms.has(room.id)) return;
-        if (!room.questions.length) {
-            socket.emit("game:notif", { message: "Cần thêm câu hỏi trước khi bắt đầu ván chơi." });
+        if (
+            room.started ||
+            socket.data.playerId !== room.host.id ||
+            !socket.rooms.has(room.id)
+        ) {
+            return;
+        }
+        if (room.questions.length < 2) {
+            socket.emit("game:notif", {
+                message: "Cần ít nhất 2 câu hỏi trước khi bắt đầu ván chơi.",
+            });
             return;
         }
         if (Object.values(room.players).length <= 1) {
-            console.error(
-                "Not enough players in room, cannot start game:",
-                data.roomId,
-            );
             socket.emit("game:notif", {
                 message: "Need at least 2 players to start the game",
             });
             return;
         }
+
         // Xóa spectator của ván trước, ván mới ai cũng sống
         io.socketsLeave(`${data.roomId}:spectators`);
         RoomsManager.startGame(data.roomId);
         io.to(data.roomId).emit("game:started", data);
-        // Gửi toàn bộ câu hỏi (gồm cả đáp án) cho tất cả người chơi trong room
-        io.to(data.roomId).emit("game:questions", {
-            roomId: data.roomId,
-            questions: room.questions,
+        io.to(data.roomId).emit("game:task-progress", {
+            roomId: room.id,
+            ...TasksManager.progress(room),
         });
-        io.to(data.roomId).emit("game:task-progress", { roomId: room.id, ...TasksManager.progress(room) });
+
+        // Mỗi người chơi chỉ nhận vai trò và nhiệm vụ của riêng mình
+        const sockets = await io.in(data.roomId).fetchSockets();
+        for (const s of sockets) {
+            const playerId = s.data.playerId;
+            if (typeof playerId !== "string") continue;
+            const isImposter = room.imposter === playerId;
+            const player = room.players[playerId];
+            // Chỉ gửi màu của crew, không gửi ID hay cờ role của người chơi khác.
+            // Mỗi client chỉ nhận role của chính mình.
+            const crewColors = Object.values(room.players)
+                .filter((roomPlayer) => roomPlayer.id !== room.imposter)
+                .map((roomPlayer) => roomPlayer.color);
+            io.to(s.id).emit("game:role", {
+                roomId: room.id,
+                isImposter,
+                playerColor: player?.color ?? null,
+                crewColors: isImposter ? [] : crewColors,
+            });
+            io.to(s.id).emit(
+                "game:tasks",
+                TasksManager.snapshot(room, playerId),
+            );
+        }
     };
 
     /**
      * @param {SendMessageData} data
+     * @param {(response: {ok: boolean, message?: string}) => void} [ack]
      * @returns {void}
      */
-    const sendMessage = (data) => {
-        console.log("Send message received:", data);
-        io.to(data.roomId).emit("room:message", {
-            playerId: data.playerId,
-            message: data.message,
-        });
+    const sendMessage = (data, ack) => {
+        const reply = typeof ack === "function" ? ack : () => {};
+        const reject = (message = "") => reply({ ok: false, message });
+
+        const roomId = typeof data?.roomId === "string" ? data.roomId : "";
+        const playerId = socket.data.playerId;
+        const room = RoomsManager.fetchRoom(roomId);
+        const player = room?.players[playerId];
+        if (!room || !player || !socket.rooms.has(roomId))
+            return reject("Bạn không ở trong phòng này.");
+
+        const text =
+            typeof data.message === "string"
+                ? data.message.replace(/\s+/g, " ").trim()
+                : "";
+        if (!text) return reject("Tin nhắn trống.");
+        if (text.length > CHAT_MAX_LENGTH)
+            return reject(`Tin nhắn tối đa ${CHAT_MAX_LENGTH} ký tự.`);
+
+        const now = Date.now();
+        if (now - (socket.data.lastChatAt ?? 0) < CHAT_COOLDOWN_MS)
+            return reject("Bạn gửi quá nhanh.");
+
+        const isDead = room.started && player.isAlive === false;
+        const inMeeting = !!room.currentMeeting?.isActive;
+        // Trong ván: người sống chỉ chat khi đang họp; người chết chỉ chat với người chết
+        if (room.started && !isDead && !inMeeting)
+            return reject("Chỉ có thể chat trong cuộc họp.");
+
+        socket.data.lastChatAt = now;
+        const payload = {
+            id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+            roomId,
+            playerId,
+            name: player.name,
+            color: player.color,
+            message: text,
+            dead: isDead,
+            ts: now,
+        };
+        io.to(isDead ? `${roomId}:spectators` : roomId).emit(
+            "room:message",
+            payload,
+        );
+        reply({ ok: true });
     };
 
     /**
@@ -237,13 +318,18 @@ export const registerRoomEvents = (io, socket) => {
                 const roomId = player.roomId;
                 const { deleted } = RoomsManager.players.remove(roomId, player);
                 const remainingRoom = RoomsManager.fetchRoom(roomId);
-                if (remainingRoom?.started) io.to(roomId).emit("game:task-progress", { roomId, ...TasksManager.progress(remainingRoom) });
+                if (remainingRoom?.started) {
+                    io.to(roomId).emit("game:task-progress", {
+                        roomId,
+                        ...TasksManager.progress(remainingRoom),
+                    });
+                }
                 socket.to(roomId).emit("player:left", { playerId: player.id });
                 PlayersManager.deletePlayer(playerId);
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
-                if (win !== null) {
+                if (win !== null && remainingRoom) {
                     remainingRoom.started = false;
                     io.to(roomId).emit("game:ended", {
                         roomId,
@@ -271,13 +357,18 @@ export const registerRoomEvents = (io, socket) => {
             if (roomId) {
                 const { deleted } = RoomsManager.players.remove(roomId, player);
                 const remainingRoom = RoomsManager.fetchRoom(roomId);
-                if (remainingRoom?.started) io.to(roomId).emit("game:task-progress", { roomId, ...TasksManager.progress(remainingRoom) });
+                if (remainingRoom?.started) {
+                    io.to(roomId).emit("game:task-progress", {
+                        roomId,
+                        ...TasksManager.progress(remainingRoom),
+                    });
+                }
                 socket.to(roomId).emit("player:left", { playerId: player.id });
                 PlayersManager.deletePlayer(data.playerId);
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
-                if (win !== null) {
+                if (win !== null && remainingRoom) {
                     remainingRoom.started = false;
                     io.to(roomId).emit("game:ended", {
                         roomId,
