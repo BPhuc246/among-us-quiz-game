@@ -243,6 +243,8 @@ export const registerRoomEvents = (io, socket) => {
                 isImposter,
                 playerColor: player?.color ?? null,
                 crewColors: isImposter ? [] : crewColors,
+            io.to(s.id).emit("game:role", {
+                isImposter: room.imposter === playerId,
             });
             io.to(s.id).emit(
                 "game:tasks",

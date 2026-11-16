@@ -88,7 +88,8 @@ export const PlayersManager = {
 
     /**
      * @param {string} id
-     * @param {string} roomId
+     * @param {string|null} roomId
+     * @returns {import('../types/room.type.js').Player|undefined}
      */
     setRoomId(id, roomId) {
         if (players[id]) {
