@@ -39,6 +39,11 @@ export class Game extends BaseGameScene {
         // TODO: Refactor to use player.isImposter instead of promise pattern
         console.log("Game scene init with data:", data);
         this.imposterProm = data.isImposter;
+        this.roleRevealActive = Boolean(data.showRoleIntro);
+        this.onRoleRevealFinished = () => {
+            this.roleRevealActive = false;
+        };
+        EventBus.on("role:reveal:finished", this.onRoleRevealFinished);
     }
 
     /**
@@ -175,6 +180,12 @@ export class Game extends BaseGameScene {
     update(time, delta) {
         if (!this.player) return;
 
+        // Freeze gameplay until React finishes the 5-second role reveal.
+        if (this.roleRevealActive) {
+            this.player.body?.setVelocity(0, 0);
+            return;
+        }
+
         this.handleMovement();
         this.taskManager?.update();
         if (!this.taskModalOpen) {
@@ -209,6 +220,10 @@ export class Game extends BaseGameScene {
      * Clean up scene resources and event listeners
      */
     shutdown() {
+        if (this.onRoleRevealFinished) {
+            EventBus.off("role:reveal:finished", this.onRoleRevealFinished);
+            this.onRoleRevealFinished = null;
+        }
         this.taskManager?.destroy();
         this.taskManager = null;
 

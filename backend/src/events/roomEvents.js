@@ -231,6 +231,18 @@ export const registerRoomEvents = (io, socket) => {
         for (const s of sockets) {
             const playerId = s.data.playerId;
             if (typeof playerId !== "string") continue;
+            const isImposter = room.imposter === playerId;
+            const player = room.players[playerId];
+            // Chỉ gửi màu của crew, không gửi ID hay cờ role của người chơi khác.
+            // Mỗi client chỉ nhận role của chính mình.
+            const crewColors = Object.values(room.players)
+                .filter((roomPlayer) => roomPlayer.id !== room.imposter)
+                .map((roomPlayer) => roomPlayer.color);
+            io.to(s.id).emit("game:role", {
+                roomId: room.id,
+                isImposter,
+                playerColor: player?.color ?? null,
+                crewColors: isImposter ? [] : crewColors,
             io.to(s.id).emit("game:role", {
                 isImposter: room.imposter === playerId,
             });

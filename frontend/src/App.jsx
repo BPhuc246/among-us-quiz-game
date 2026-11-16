@@ -36,8 +36,9 @@ function App() {
   const [gameResult, setGameResult] = useState(null);
   const [isLocalPlayerImposter, setIsLocalPlayerImposter] = useState(false);
   const [isLocalPlayerHost, setIsLocalPlayerHost] = useState(false);
-  const LocalImposterRef = useRef(false); // TODO remove unwanted states with ref
   const [roleIndicator, setRoleIndicator] = useState(false);
+  const [roleRevealData, setRoleRevealData] = useState(null);
+  const [localPlayerColor, setLocalPlayerColor] = useState(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -71,18 +72,26 @@ function App() {
 
       data.playerId = playerIdRef.current;
 
-      // Giữ promise trong biến cục bộ để không bị ghi đè bởi listener khác
+      // Server gửi role riêng cho từng người chơi ngay sau game:started.
+      // Phaser chỉ nhận boolean; React giữ toàn bộ role payload để dựng intro UI.
       const rolePromise = new Promise((resolve) => {
         roleResolveRef.current = resolve;
       });
-      data.isImposter = rolePromise;
+      data.isImposter = rolePromise.then((roleInfo) => Boolean(roleInfo?.isImposter));
+      data.showRoleIntro = true;
 
       EventBus.emit("start-game", data);
       setCurrentPage(PAGES.GAME);
 
-      rolePromise.then((val) => {
-        LocalImposterRef.current = val;
-        setIsLocalPlayerImposter(val);
+      rolePromise.then((roleInfo) => {
+        const isImposter = Boolean(roleInfo?.isImposter);
+        setIsLocalPlayerImposter(isImposter);
+        setLocalPlayerColor(roleInfo?.playerColor ?? null);
+        setRoleRevealData({
+          ...roleInfo,
+          isImposter,
+          crewColors: Array.isArray(roleInfo?.crewColors) ? roleInfo.crewColors : [],
+        });
         setRoleIndicator(true);
       });
     };
@@ -104,6 +113,9 @@ function App() {
 
     const handleGameEnd = (data) => {
       console.log("Game end event received in App:", data);
+      if (data?.roomId && data.roomId !== roomIdRef.current) return;
+      setRoleIndicator(false);
+      EventBus.emit("role:reveal:finished");
       setGameResult(data);
       setCurrentPage(PAGES.GAMEEND);
     };
@@ -119,8 +131,9 @@ function App() {
       }));
     };
 
-    const handleRole = ({ isImposter }) => {
-      roleResolveRef.current?.(Boolean(isImposter));
+    const handleRole = (roleInfo) => {
+      if (roleInfo?.roomId && roleInfo.roomId !== roomIdRef.current) return;
+      roleResolveRef.current?.(roleInfo || {});
       roleResolveRef.current = null;
     };
 
@@ -224,11 +237,14 @@ function App() {
           {isConnected ? "Connected" : "Disconnected"}
         </div>
       )}
-      {roleIndicator && (
+      {roleIndicator && roleRevealData && (
         <RoleIndicator
-          role={{ imposter: LocalImposterRef.current }}
+          role={{ imposter: roleRevealData.isImposter }}
+          crewColors={roleRevealData.crewColors}
+          playerColor={roleRevealData.playerColor}
           onAnimationEnd={() => {
             setRoleIndicator(false);
+            EventBus.emit("role:reveal:finished");
           }}
         />
       )}
@@ -240,6 +256,7 @@ function App() {
           result={gameResult}
           onBackToMenu={handleBackToMenu}
           isLocalPlayerImposter={isLocalPlayerImposter}
+          playerColor={localPlayerColor}
         />
       )}
 
