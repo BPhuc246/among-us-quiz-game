@@ -172,7 +172,7 @@ export const registerRoomEvents = (io, socket) => {
 
         const win = RoomsManager.checkWin(roomId);
         console.log("Win condition check after player leave:", win);
-        if (win !== null && remainingRoom) {
+        if (win !== null && remainingRoom && !remainingRoom.eliminationInProgress) {
             remainingRoom.started = false;
             io.to(roomId).emit("game:ended", { roomId, isImposter: win });
         }
@@ -243,13 +243,14 @@ export const registerRoomEvents = (io, socket) => {
                 isImposter,
                 playerColor: player?.color ?? null,
                 crewColors: isImposter ? [] : crewColors,
-            io.to(s.id).emit("game:role", {
-                isImposter: room.imposter === playerId,
+                // io.to(s.id).emit("game:role", {
+                //     isImposter: room.imposter === playerId,
+                // });
+                // io.to(s.id).emit(
+                //     "game:tasks",
+                //     TasksManager.snapshot(room, playerId),
+                // );
             });
-            io.to(s.id).emit(
-                "game:tasks",
-                TasksManager.snapshot(room, playerId),
-            );
         }
     };
 
@@ -331,7 +332,7 @@ export const registerRoomEvents = (io, socket) => {
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
-                if (win !== null && remainingRoom) {
+                if (win !== null && remainingRoom && !remainingRoom.eliminationInProgress) {
                     remainingRoom.started = false;
                     io.to(roomId).emit("game:ended", {
                         roomId,
@@ -370,7 +371,7 @@ export const registerRoomEvents = (io, socket) => {
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
-                if (win !== null && remainingRoom) {
+                if (win !== null && remainingRoom && !remainingRoom.eliminationInProgress) {
                     remainingRoom.started = false;
                     io.to(roomId).emit("game:ended", {
                         roomId,

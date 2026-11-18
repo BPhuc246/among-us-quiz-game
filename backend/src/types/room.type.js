@@ -50,7 +50,8 @@
  *   ejectedId: string|null,
  *   tie: boolean,
  *   counts: {[playerId: string]: number},
- *   votes: {[playerId: string]: string|null}
+ *   votes: {[playerId: string]: string|null},
+ *   ejectedPlayer?: {id: string, name: string, color: string, isImposter: boolean}
  * }} MeetingResults
  */
 
@@ -76,6 +77,7 @@
  * @typedef {{
  *   id: string,
  *   started: boolean,
+ *   eliminationInProgress?: boolean,
  *   imposter: (string|null),
  *   host: Player,
  *   players: {[key: string]: Player},

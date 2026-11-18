@@ -66,6 +66,11 @@ export function registerTaskEvents(io, socket) {
             return;
         }
 
+        if (room.eliminationInProgress) {
+            reply({ ok: false, message: "Vui lòng chờ hoạt ảnh loại người chơi kết thúc." });
+            return;
+        }
+
         const result = TasksManager.submit(room, playerId, data);
         reply(result);
         if (!result.correct || result.alreadyCompleted) return;
