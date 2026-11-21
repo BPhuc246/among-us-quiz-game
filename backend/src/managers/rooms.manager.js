@@ -30,6 +30,7 @@ const rooms = {
             color: "red",
             isImposter: false,
             isAlive: true,
+            isReady: true,
         },
         players: {},
         currentMeeting: null,
@@ -81,6 +82,25 @@ export const RoomsManager = {
         };
         delete publicRoom.taskState;
         return publicRoom;
+    },
+
+    /**
+     * Danh sách người chơi kèm trạng thái sẵn sàng, gửi cho cả phòng.
+     * @param {string} roomId
+     * @returns {{players: {id: string, name: string, color: string, isReady: boolean, isHost: boolean}[], allReady: boolean}}
+     */
+    getReadyStatus(roomId) {
+        const room = rooms[roomId];
+        if (!room) return { players: [], allReady: false };
+        const players = Object.values(room.players).map((p) => ({
+            id: p.id,
+            name: p.name,
+            color: p.color,
+            isReady: p.isReady === true,
+            isHost: p.id === room.host.id,
+        }));
+        const guests = players.filter((p) => !p.isHost);
+        return { players, allReady: guests.every((p) => p.isReady) };
     },
 
     /**
@@ -314,7 +334,7 @@ export const RoomsManager = {
         // Reset trạng thái cho tất cả người chơi khi bắt đầu ván
         players.forEach((p) => {
             p.isAlive = true;
-            p.isImposter = false; // vai trò thật chỉ lưu ở room.imposter
+            p.isReady = false;
             PlayersManager.updatePlayerState(p.id, {
                 ...GAME_SPAWN,
                 d: "left",

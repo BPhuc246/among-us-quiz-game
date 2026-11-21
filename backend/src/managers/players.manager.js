@@ -84,6 +84,7 @@ export const PlayersManager = {
 
             players[id].isAlive = true;
             players[id].isImposter = false;
+            players[id].isReady = false;
         }
     },
 
