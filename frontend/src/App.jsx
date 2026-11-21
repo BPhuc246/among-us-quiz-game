@@ -39,6 +39,7 @@ function App() {
   const [roleIndicator, setRoleIndicator] = useState(false);
   const [roleRevealData, setRoleRevealData] = useState(null);
   const [localPlayerColor, setLocalPlayerColor] = useState(null);
+  const [lobbyPlayers, setLobbyPlayers] = useState([]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -61,6 +62,10 @@ function App() {
 
     const handleConnect = () => setIsConnected(true);
     const handleDisconnect = () => setIsConnected(false);
+    const handleReadyUpdate = (data) => {
+      if (data?.roomId !== roomIdRef.current) return;
+      setLobbyPlayers(data.players || []);
+    };
     const handleStartGame = (data) => {
       console.log(
         "Game started event received in App:",
@@ -77,7 +82,9 @@ function App() {
       const rolePromise = new Promise((resolve) => {
         roleResolveRef.current = resolve;
       });
-      data.isImposter = rolePromise.then((roleInfo) => Boolean(roleInfo?.isImposter));
+      data.isImposter = rolePromise.then((roleInfo) =>
+        Boolean(roleInfo?.isImposter),
+      );
       data.showRoleIntro = true;
 
       EventBus.emit("start-game", data);
@@ -90,7 +97,9 @@ function App() {
         setRoleRevealData({
           ...roleInfo,
           isImposter,
-          crewColors: Array.isArray(roleInfo?.crewColors) ? roleInfo.crewColors : [],
+          crewColors: Array.isArray(roleInfo?.crewColors)
+            ? roleInfo.crewColors
+            : [],
         });
         setRoleIndicator(true);
       });
@@ -145,6 +154,7 @@ function App() {
 
     sockett.on("connect", handleConnect);
     sockett.on("disconnect", handleDisconnect);
+    sockett.on("room:ready:update", handleReadyUpdate);
     sockett.on("game:started", handleStartGame);
     sockett.on("meeting:voted", handleVote);
     sockett.on("game:notif", handleNotif);
@@ -157,6 +167,7 @@ function App() {
     return () => {
       sockett.off("connect", handleConnect);
       sockett.off("disconnect", handleDisconnect);
+      sockett.off("room:ready:update", handleReadyUpdate);
       sockett.off("game:started", handleStartGame);
       sockett.off("game:role", handleRole);
       sockett.off("meeting:voted", handleVote);
@@ -179,6 +190,10 @@ function App() {
   };
 
   const handleStartGameBtn = () => {
+    if (!allGuestsReady) {
+      window.showToast?.("Chưa đủ người chơi sẵn sàng.", "warning", 3000);
+      return;
+    }
     socket.emit("game:start", { roomId });
   };
 
@@ -188,6 +203,7 @@ function App() {
     EventBus.emit("task:close");
     setRoomId(null);
     setCurrentPage(PAGES.MENU);
+    setLobbyPlayers([]);
     window.location.reload();
   };
 
@@ -219,6 +235,19 @@ function App() {
     socket.emit("meeting:end", {
       roomId: roomId,
     });
+  };
+
+  const localLobbyPlayer = lobbyPlayers.find(
+    (p) => p.id === playerIdRef.current,
+  );
+  const localIsReady = !!localLobbyPlayer?.isReady;
+  const isHost = localLobbyPlayer ? localLobbyPlayer.isHost : isLocalPlayerHost;
+  const guests = lobbyPlayers.filter((p) => !p.isHost);
+  const allGuestsReady = guests.every((p) => p.isReady);
+
+  const handleToggleReady = () => {
+    if (!socket || !roomId) return;
+    socket.emit("player:ready", { roomId, ready: !localIsReady });
   };
 
   return (
@@ -263,16 +292,74 @@ function App() {
       {(currentPage === PAGES.GAME || currentPage === PAGES.WAITING) && (
         <div className={styles.gameContainer}>
           <PhaserGame />
+          {currentPage === PAGES.WAITING && (
+            <div
+              style={{
+                position: "absolute",
+                top: 80,
+                right: 20,
+                background: "rgba(0,0,0,0.7)",
+                padding: 16,
+                borderRadius: 10,
+                minWidth: 220,
+                color: "#fff",
+                zIndex: 10,
+              }}
+            >
+              <div style={{ fontWeight: "bold", marginBottom: 8 }}>
+                Người chơi ({lobbyPlayers.length})
+              </div>
+              {lobbyPlayers.map((p) => (
+                <div
+                  key={p.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    marginBottom: 4,
+                  }}
+                >
+                  <span
+                    style={{
+                      color: p.id === playerIdRef.current ? "#1e90ff" : "#fff",
+                    }}
+                  >
+                    {p.name}
+                    {p.isHost ? " (Host)" : ""}
+                  </span>
+                  <span
+                    style={{
+                      color: p.isHost
+                        ? "#aaa"
+                        : p.isReady
+                          ? "#4caf50"
+                          : "#ff9800",
+                    }}
+                  >
+                    {p.isHost
+                      ? "Host"
+                      : p.isReady
+                        ? "Sẵn sàng"
+                        : "Chưa sẵn sàng"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {currentPage === PAGES.WAITING &&
-            (isLocalPlayerHost ? (
+            (isHost ? (
               <Button
                 onClick={handleStartGameBtn}
-                children="Start Game"
+                children={
+                  allGuestsReady ? "Start Game" : "Chờ người chơi sẵn sàng"
+                }
                 className={styles.startBtn}
               />
             ) : (
               <Button
-                children="Waiting for Host to Start"
+                onClick={handleToggleReady}
+                children={localIsReady ? "Hủy sẵn sàng" : "Sẵn sàng"}
                 className={styles.startBtn}
               />
             ))}

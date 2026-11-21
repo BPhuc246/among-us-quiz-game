@@ -25,6 +25,35 @@ const CHAT_COOLDOWN_MS = 500;
  */
 export const registerRoomEvents = (io, socket) => {
     /**
+     * @param {string} roomId
+     * @returns {void}
+     */
+    const broadcastReadyStatus = (roomId) => {
+        io.to(roomId).emit("room:ready:update", {
+            roomId,
+            ...RoomsManager.getReadyStatus(roomId),
+        });
+    };
+
+    /**
+     * @param {{roomId: string, ready: boolean}} data
+     * @returns {void}
+     */
+    const playerReady = (data) => {
+        const roomId = typeof data?.roomId === "string" ? data.roomId : "";
+        const playerId = socket.data.playerId;
+        const room = RoomsManager.fetchRoom(roomId);
+        const player = room?.players[playerId];
+        if (!room || !player || !socket.rooms.has(roomId)) return;
+        if (room.started) return;
+        // Host không cần sẵn sàng
+        if (playerId === room.host.id) return;
+
+        player.isReady = data.ready === true;
+        broadcastReadyStatus(roomId);
+    };
+
+    /**
      * @param {RegisterData} data
      * @returns {void}
      */
@@ -143,6 +172,7 @@ export const registerRoomEvents = (io, socket) => {
             player: joinedPlayer,
             roomId: data.roomId,
         });
+        broadcastReadyStatus(data.roomId);
     };
 
     /**
@@ -178,6 +208,7 @@ export const registerRoomEvents = (io, socket) => {
         }
 
         io.to(roomId).emit("player:left", { playerId: player.id });
+        broadcastReadyStatus(roomId);
         PlayersManager.setRoomId(player.id, null);
         socket.leave(roomId);
         socket.leave(`${roomId}:spectators`);
@@ -213,6 +244,16 @@ export const registerRoomEvents = (io, socket) => {
         if (Object.values(room.players).length <= 1) {
             socket.emit("game:notif", {
                 message: "Need at least 2 players to start the game",
+            });
+            return;
+        }
+
+        const notReady = Object.values(room.players).filter(
+            (p) => p.id !== room.host.id && p.isReady !== true,
+        );
+        if (notReady.length > 0) {
+            socket.emit("game:notif", {
+                message: `Còn ${notReady.length} người chơi chưa sẵn sàng: ${notReady.map((p) => p.name).join(", ")}`,
             });
             return;
         }
@@ -325,6 +366,7 @@ export const registerRoomEvents = (io, socket) => {
                     });
                 }
                 socket.to(roomId).emit("player:left", { playerId: player.id });
+                broadcastReadyStatus(roomId);
                 PlayersManager.deletePlayer(playerId);
 
                 // Check win condition after player removal
@@ -364,6 +406,7 @@ export const registerRoomEvents = (io, socket) => {
                     });
                 }
                 socket.to(roomId).emit("player:left", { playerId: player.id });
+                broadcastReadyStatus(roomId);
                 PlayersManager.deletePlayer(data.playerId);
 
                 // Check win condition after player removal
@@ -399,5 +442,6 @@ export const registerRoomEvents = (io, socket) => {
     socket.on("game:start", gameStart);
     socket.on("room:send:message", sendMessage);
     socket.on("disconnect", disconnect);
+    socket.on("player:ready", playerReady);
     // TODO cleanup old imposter sending logic
 };
