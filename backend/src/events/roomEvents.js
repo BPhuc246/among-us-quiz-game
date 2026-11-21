@@ -228,28 +228,25 @@ export const registerRoomEvents = (io, socket) => {
 
         // Mỗi người chơi chỉ nhận vai trò và nhiệm vụ của riêng mình
         const sockets = await io.in(data.roomId).fetchSockets();
+        // Màu của tất cả người chơi trong phòng, kể cả imposter.
+        // Crew dùng danh sách này để hiển thị toàn bộ người chơi trên màn hình vai trò.
+        const allColors = Object.values(room.players).map((p) => p.color);
+
         for (const s of sockets) {
             const playerId = s.data.playerId;
             if (typeof playerId !== "string") continue;
+
             const isImposter = room.imposter === playerId;
             const player = room.players[playerId];
-            // Chỉ gửi màu của crew, không gửi ID hay cờ role của người chơi khác.
-            // Mỗi client chỉ nhận role của chính mình.
-            const crewColors = Object.values(room.players)
-                .filter((roomPlayer) => roomPlayer.id !== room.imposter)
-                .map((roomPlayer) => roomPlayer.color);
+
             io.to(s.id).emit("game:role", {
                 roomId: room.id,
+                playerId,
                 isImposter,
                 playerColor: player?.color ?? null,
-                crewColors: isImposter ? [] : crewColors,
-                // io.to(s.id).emit("game:role", {
-                //     isImposter: room.imposter === playerId,
-                // });
-                // io.to(s.id).emit(
-                //     "game:tasks",
-                //     TasksManager.snapshot(room, playerId),
-                // );
+                // Crew nhận màu của toàn bộ người chơi (gồm imposter).
+                // Imposter chỉ nhận mảng rỗng, và RoleIndicator sẽ chỉ hiển thị màu của chính họ.
+                crewColors: isImposter ? [] : allColors,
             });
         }
     };

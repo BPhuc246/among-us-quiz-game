@@ -12,7 +12,8 @@
  *   state: PlayerState,
  *   color: string,
  *   isImposter: boolean,
- *   isAlive: boolean
+ *   isAlive: boolean,
+ *   isReady: boolean,
  * }} Player
  */
 

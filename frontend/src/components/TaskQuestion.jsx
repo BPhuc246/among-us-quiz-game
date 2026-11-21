@@ -84,7 +84,7 @@ export default function TaskQuestion({
               onClick={onClose}
               aria-label="Đóng cửa sổ"
             >
-              ×
+              x
             </button>
           </div>
         </header>
