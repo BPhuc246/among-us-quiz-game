@@ -196,10 +196,19 @@ export const registerGameEvents = (io, socket) => {
             room.eliminationInProgress
         ) return false;
         RoomsManager.meetings.create(data.roomId, data.callerId, meetingEnd);
-        io.to(data.roomId).emit("meeting:started", {
-            ...data,
-            players: room.players,
-        });
+
+        // Gửi riêng cho từng client để mỗi người chỉ thấy isImposter của chính mình
+        for (const s of io.sockets.sockets.values()) {
+            if (!s.rooms.has(data.roomId)) continue;
+            s.emit("meeting:started", {
+                ...data,
+                playerId: s.data.playerId ?? null,
+                players: RoomsManager.toPlayersViewFor(
+                    data.roomId,
+                    s.data.playerId,
+                ),
+            });
+        }
         return true;
     };
 

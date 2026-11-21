@@ -83,6 +83,28 @@ export const RoomsManager = {
         return publicRoom;
     },
 
+    /**
+     * Danh sách người chơi gửi riêng cho từng client.
+     * Chỉ imposter nhận được isImposter = true, và chỉ trên chính entry của họ.
+     * @param {string} roomId
+     * @param {string} recipientId
+     * @returns {{[playerId: string]: Player}}
+     */
+    toPlayersViewFor(roomId, recipientId) {
+        const room = rooms[roomId];
+        if (!room) return {};
+        /** @type {{[playerId: string]: Player}} */
+        const view = {};
+        for (const [id, p] of Object.entries(room.players)) {
+            view[id] = {
+                ...p,
+                id,
+                isImposter: id === recipientId && id === room.imposter,
+            };
+        }
+        return view;
+    },
+
     players: {
         /**
          * @param {string} roomId
@@ -289,8 +311,10 @@ export const RoomsManager = {
         }
 
         // Reset alive status for all players when starting
+        // Reset trạng thái cho tất cả người chơi khi bắt đầu ván
         players.forEach((p) => {
             p.isAlive = true;
+            p.isImposter = false; // vai trò thật chỉ lưu ở room.imposter
             PlayersManager.updatePlayerState(p.id, {
                 ...GAME_SPAWN,
                 d: "left",

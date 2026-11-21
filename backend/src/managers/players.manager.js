@@ -32,6 +32,7 @@ export const PlayersManager = {
                 color: color,
                 isImposter: false,
                 isAlive: true,
+                isReady: false,
             };
         } else {
             // Update existing player's name and color
