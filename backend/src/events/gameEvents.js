@@ -39,6 +39,9 @@ import { PlayersManager } from "../managers/players.manager.js";
 
 /** Room phụ chỉ chứa người đã chết (spectator). Phải khớp với roomEvents.js */
 const spectatorRoomOf = (roomId = "") => `${roomId}:spectators`;
+const ELIMINATION_DURATION_MS = 5000;
+/** @type {Map<string, ReturnType<typeof setTimeout>>} */
+const eliminationTimeouts = new Map();
 export const REPORT_RADIUS = 60;
 
 /**
@@ -74,6 +77,8 @@ export const registerGameEvents = (io, socket) => {
         if (socket.data.playerId !== playerId || !socket.rooms.has(data.roomId))
             return;
         if (!Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+        const activeRoom = RoomsManager.fetchRoom(data.roomId);
+        if (activeRoom?.eliminationInProgress) return;
 
         RoomsManager.players.updateState(data.roomId, playerId, {
             x: data.x,
@@ -136,7 +141,11 @@ export const registerGameEvents = (io, socket) => {
 
         const room = RoomsManager.fetchRoom(roomId);
         if (!room) return reject("ROOM_NOT_FOUND");
-        if (!room.started || room.currentMeeting?.isActive)
+        if (
+            !room.started ||
+            room.currentMeeting?.isActive ||
+            room.eliminationInProgress
+        )
             return reject("GAME_UNAVAILABLE");
 
         const killer = room.players[killerId];
@@ -181,7 +190,11 @@ export const registerGameEvents = (io, socket) => {
      */
     const meetingStart = (data) => {
         const room = RoomsManager.fetchRoom(data.roomId);
-        if (!room?.started || room.currentMeeting?.isActive) return false;
+        if (
+            !room?.started ||
+            room.currentMeeting?.isActive ||
+            room.eliminationInProgress
+        ) return false;
         RoomsManager.meetings.create(data.roomId, data.callerId, meetingEnd);
 
         // Gửi riêng cho từng client để mỗi người chỉ thấy isImposter của chính mình
@@ -281,21 +294,60 @@ export const registerGameEvents = (io, socket) => {
             }
         }
 
-        io.to(data.roomId).emit("meeting:ended", data);
-
-        // Check win condition after meeting
         const roomId = data.roomId;
-        const win = RoomsManager.checkWin(roomId);
 
+        // Reveal the ejected player's public identity and role only after voting.
+        const ejectedPlayer = ejectedId ? room.players[ejectedId] : null;
+        if (data.results && ejectedPlayer) {
+            data.results.ejectedPlayer = {
+                id: ejectedPlayer.id,
+                name: ejectedPlayer.name,
+                color: ejectedPlayer.color,
+                isImposter: ejectedId === room.imposter,
+            };
+        }
+
+        io.to(roomId).emit("meeting:ended", data);
+
+        // Evaluate the winner now, but defer game:ended until the 5-second
+        // elimination scene has completed so Victory/Defeat cannot cover it.
+        const win = RoomsManager.checkWin(roomId);
         console.log("Win condition check after meeting:", win);
 
+        if (ejectedId) {
+            room.eliminationInProgress = true;
+            const previousTimeout = eliminationTimeouts.get(roomId);
+            if (previousTimeout) clearTimeout(previousTimeout);
+
+            const timeout = setTimeout(() => {
+                eliminationTimeouts.delete(roomId);
+                const currentRoom = RoomsManager.fetchRoom(roomId);
+                if (!currentRoom) return;
+
+                currentRoom.eliminationInProgress = false;
+                const finalWin = RoomsManager.checkWin(roomId);
+
+                io.to(roomId).emit("meeting:elimination:finished", {
+                    roomId,
+                    gameEnded: finalWin !== null,
+                });
+
+                if (finalWin !== null) {
+                    currentRoom.started = false;
+                    io.to(roomId).emit("game:ended", {
+                        roomId,
+                        isImposter: finalWin,
+                    });
+                }
+            }, ELIMINATION_DURATION_MS);
+
+            eliminationTimeouts.set(roomId, timeout);
+            return;
+        }
+
+        // A tie/no ejection has no elimination scene, so keep old immediate flow.
         if (win !== null) {
-            const currentRoom = RoomsManager.fetchRoom(roomId);
-
-            if (!currentRoom) return;
-
-            currentRoom.started = false;
-
+            room.started = false;
             io.to(roomId).emit("game:ended", {
                 roomId,
                 isImposter: win,

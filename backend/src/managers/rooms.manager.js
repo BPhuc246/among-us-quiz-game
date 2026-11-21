@@ -321,6 +321,7 @@ export const RoomsManager = {
         const room = rooms[roomId];
         if (!room) return undefined;
         room.started = true;
+        room.eliminationInProgress = false;
         room.deadBodies = {};
         const players = Object.values(room.players);
 

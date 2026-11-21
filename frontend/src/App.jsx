@@ -8,6 +8,7 @@ import Meeting from "./components/Meeting.jsx";
 import EndGame from "./components/EndGame.jsx";
 import { EventBus } from "./game/EventBus";
 import RoleIndicator from "./components/RoleIndicator.jsx";
+import Eliminate from "./components/Eliminate.jsx";
 import { ToastContainer } from "./components/Toast.jsx";
 import QuizTasks from "./components/QuizTasks.jsx";
 import Chat from "./components/Chat.jsx";
@@ -40,6 +41,7 @@ function App() {
   const [roleRevealData, setRoleRevealData] = useState(null);
   const [localPlayerColor, setLocalPlayerColor] = useState(null);
   const [lobbyPlayers, setLobbyPlayers] = useState([]);
+  const [eliminationData, setEliminationData] = useState(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -118,13 +120,25 @@ function App() {
       console.log("Meeting ended in App:", data);
       setMeetingActive(false);
       setMeetingData(null);
+      setEliminationData(data?.results?.ejectedPlayer ?? null);
+    };
+
+    // The server ends this sequence after the 5-second ejection animation.
+    // If the vote ended the game, keep this screen until game:ended arrives.
+    const handleEliminationFinished = (data) => {
+      if (data?.roomId && data.roomId !== roomIdRef.current) return;
+      if (data?.gameEnded) return;
+      setEliminationData(null);
+      EventBus.emit("elimination:finished");
     };
 
     const handleGameEnd = (data) => {
       console.log("Game end event received in App:", data);
       if (data?.roomId && data.roomId !== roomIdRef.current) return;
       setRoleIndicator(false);
+      setEliminationData(null);
       EventBus.emit("role:reveal:finished");
+      EventBus.emit("elimination:finished");
       setGameResult(data);
       setCurrentPage(PAGES.GAMEEND);
     };
@@ -157,6 +171,7 @@ function App() {
     sockett.on("room:ready:update", handleReadyUpdate);
     sockett.on("game:started", handleStartGame);
     sockett.on("meeting:voted", handleVote);
+    sockett.on("meeting:elimination:finished", handleEliminationFinished);
     sockett.on("game:notif", handleNotif);
 
     EventBus.on("meeting:started", handleMeetingStarted);
@@ -171,6 +186,7 @@ function App() {
       sockett.off("game:started", handleStartGame);
       sockett.off("game:role", handleRole);
       sockett.off("meeting:voted", handleVote);
+      sockett.off("meeting:elimination:finished", handleEliminationFinished);
       sockett.off("game:notif", handleNotif);
       EventBus.off("meeting:started", handleMeetingStarted);
       EventBus.off("meeting:ended", handleMeetingEnded);
@@ -277,6 +293,8 @@ function App() {
           }}
         />
       )}
+
+      {eliminationData && <Eliminate player={eliminationData} />}
 
       {currentPage === PAGES.MENU && <Menu onJoinGame={handleJoinRoom} />}
 

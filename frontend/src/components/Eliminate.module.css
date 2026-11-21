@@ -1,0 +1,142 @@
+.overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 12500;
+    overflow: hidden;
+    isolation: isolate;
+    background: #000 url("/assets/eliminate/eliminate_background.png") center / cover no-repeat;
+    animation: screenFadeIn 520ms ease-out both;
+    pointer-events: all;
+}
+
+.fadeIn {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: #000;
+    pointer-events: none;
+    animation: fadeFromBlack 650ms ease-out forwards;
+}
+
+/* The wrapper moves horizontally; keep the character upright inside it. */
+.flightPath {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: 22%;
+    width: clamp(82px, 11vw, 150px);
+    height: clamp(105px, 15vw, 190px);
+    display: grid;
+    place-items: center;
+    opacity: 1;
+    transform: translate(-50%, -50%);
+    animation: flyAcross 3s linear 120ms both;
+    will-change: left, opacity;
+}
+
+.character {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    /* idle.png is already upright. Do not rotate it sideways. */
+    transform: none;
+    filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55));
+    user-select: none;
+}
+
+.characterFallback {
+    width: 64%;
+    height: 78%;
+    border: 5px solid #101010;
+    border-radius: 42% 42% 27% 27%;
+    box-shadow: inset -10px -7px 0 rgba(0, 0, 0, 0.2), 0 8px 10px rgba(0, 0, 0, 0.55);
+    /* Keep fallback avatar upright as well. */
+    transform: none;
+}
+
+.resultText {
+    position: absolute;
+    z-index: 2;
+    top: 50%;
+    left: 50%;
+    width: min(88vw, 900px);
+    margin: 0;
+    color: #fff;
+    text-align: center;
+    font-family: "Trebuchet MS", Arial, sans-serif;
+    font-size: clamp(19px, 2.7vw, 34px);
+    font-weight: 700;
+    letter-spacing: 0.015em;
+    line-height: 1.25;
+    text-shadow: 0 3px 5px #000, 0 0 12px rgba(0, 0, 0, 0.9);
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    animation: showResult 2s ease-in-out 1s both;
+    pointer-events: none;
+}
+
+@keyframes screenFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes fadeFromBlack {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+/* Move the avatar in a straight horizontal line, fully beyond the right edge. */
+@keyframes flyAcross {
+    0% {
+        left: 22%;
+        opacity: 0;
+        transform: translate(-50%, -50%);
+    }
+    9% { opacity: 1; }
+    100% {
+        left: 120%;
+        opacity: 1;
+        transform: translate(-50%, -50%);
+    }
+}
+
+@keyframes showResult {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.96);
+    }
+    12%, 86% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(1.02);
+    }
+}
+
+@media (max-width: 640px) {
+    .flightPath {
+        width: 82px;
+        height: 108px;
+    }
+
+    .resultText {
+        width: 90vw;
+        font-size: clamp(17px, 5vw, 24px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* Skip decorative fades, but retain the core ejection movement and result
+       timing because they communicate the outcome of the vote. */
+    .overlay {
+        animation: none;
+        opacity: 1;
+    }
+
+    .fadeIn {
+        display: none;
+    }
+}

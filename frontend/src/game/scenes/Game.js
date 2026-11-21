@@ -43,7 +43,14 @@ export class Game extends BaseGameScene {
         this.onRoleRevealFinished = () => {
             this.roleRevealActive = false;
         };
+        this.eliminationActive = false;
+        this.onEliminationFinished = () => {
+            this.eliminationActive = false;
+            this.physics?.resume();
+            if (!this.isGhost) enableVisionSystem(this);
+        };
         EventBus.on("role:reveal:finished", this.onRoleRevealFinished);
+        EventBus.on("elimination:finished", this.onEliminationFinished);
     }
 
     /**
@@ -181,7 +188,7 @@ export class Game extends BaseGameScene {
         if (!this.player) return;
 
         // Freeze gameplay until React finishes the 5-second role reveal.
-        if (this.roleRevealActive) {
+        if (this.roleRevealActive || this.eliminationActive) {
             this.player.body?.setVelocity(0, 0);
             return;
         }
@@ -223,6 +230,10 @@ export class Game extends BaseGameScene {
         if (this.onRoleRevealFinished) {
             EventBus.off("role:reveal:finished", this.onRoleRevealFinished);
             this.onRoleRevealFinished = null;
+        }
+        if (this.onEliminationFinished) {
+            EventBus.off("elimination:finished", this.onEliminationFinished);
+            this.onEliminationFinished = null;
         }
         this.taskManager?.destroy();
         this.taskManager = null;
@@ -355,10 +366,14 @@ export class Game extends BaseGameScene {
             this.meetingActive = false;
             clearDeadBodies(this);
             this.room.deadBodies = {};
-            this.physics.resume();
-            enableVisionSystem(this);
-            this.teleportPlayersToSpawn();
             const ejectedId = data.results?.ejectedId;
+
+            // Resume briefly to restore player positions and apply the ejection
+            // state, then freeze the world while React plays the 5-second scene.
+            this.physics.resume();
+            if (!this.isGhost) enableVisionSystem(this);
+            this.teleportPlayersToSpawn();
+
             if (ejectedId === this.playerObj?.id) {
                 this.enterGhostMode();
                 disableVisionSystem(this);
@@ -373,7 +388,16 @@ export class Game extends BaseGameScene {
                 }
             }
 
-            // Recieved by react
+            this.eliminationActive = Boolean(ejectedId);
+            if (ejectedId) {
+                this.player?.body?.setVelocity(0, 0);
+                Object.values(this.players || {}).forEach((sprite) => {
+                    sprite?.body?.setVelocity(0, 0);
+                });
+                this.physics.pause();
+            }
+
+            // Forward the public ejected-player details to the React overlay.
             EventBus.emit("meeting:ended", {
                 results: data.results,
             });
