@@ -342,16 +342,26 @@ router.post("/normalize", async (req, res) => {
         console.log(`AI chuẩn hóa ${questions.length} câu (${chunks.length} phần) trong ${Date.now() - t0}ms`);
 
         // Đổi answer_index -> answer (chữ) cho đúng định dạng game
-        res.json(
-            questions.map((q) => ({
+        const result = questions.map((q) => {
+            const answer = (q.options[q.answer_index] ?? q.options[0] ?? "").trim();
+            return {
                 // AI thỉnh thoảng giữ số thứ tự ("114. ...") -> bỏ đi
-                title: q.title.replace(/^\s*(?:Câu|Question|Q)?\s*\d{1,3}\s*[.):]\s*/i, ""),
+                title: q.title.replace(/^\s*(?:Câu|Question|Q)?\s*\d{1,3}\s*[.):]\s*/i, "").trim(),
                 description: q.description || "Chọn đáp án đúng.",
-                options: q.options,
-                answer: q.options[q.answer_index] ?? q.options[0],
-                explain: q.explain,
-            })),
-        );
+                // Đề gốc có khi in trùng lựa chọn (vd a và d giống nhau) -> game sẽ từ chối, nên gộp lại
+                options: [...new Set(q.options.map((o) => o.trim()).filter(Boolean))],
+                answer,
+                explain: q.explain ?? "",
+            };
+        });
+
+        // Bỏ câu vẫn không hợp lệ theo luật tạo phòng (rooms.manager.js isValidQuestionInput),
+        // để 1 câu lỗi không làm hỏng cả bộ đề
+        const valid = result.filter((q) => q.title && q.options.length >= 2 && q.options.includes(q.answer));
+        if (valid.length < result.length) {
+            console.warn(`Bỏ ${result.length - valid.length} câu không hợp lệ sau khi chuẩn hóa`);
+        }
+        res.json(valid);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: err.message });
