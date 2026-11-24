@@ -16,6 +16,9 @@
         "cors": "^2.8.6",
         "dotenv": "^17.2.3",
         "express": "^5.2.1",
+        "mammoth": "^1.13.0",
+        "openai": "^7.62.0",
+        "pdfjs-dist": "^4.10.38",
         "socket.io": "^4.8.3"
     },
     "devDependencies": {
