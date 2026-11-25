@@ -18,6 +18,9 @@ export function Menu({ onJoinGame }) {
   const [error, setError] = useState("");
   const [rooms, setRooms] = useState({});
 
+  const [questionFile, setQuestionFile] = useState(null);
+  const [normalizing, setNormalizing] = useState(false);
+
   const socket = socketService.getSocket();
 
   useEffect(() => {
@@ -134,6 +137,41 @@ export function Menu({ onJoinGame }) {
   const handleBackToRegister = () => {
     const playerId = getPlayerId();
     socket.emit("player:unregister", { playerId });
+  };
+
+  // Đọc file thành chuỗi base64 để gửi kèm trong JSON
+  const readAsBase64 = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  // Gửi văn bản / file lên backend để AI chuẩn hóa, rồi ghi JSON vào ô câu hỏi
+  const handleNormalize = async () => {
+    setNormalizing(true);
+    setError("");
+    try {
+      const file = questionFile
+        ? { name: questionFile.name, data: await readAsBase64(questionFile) }
+        : null;
+      const res = await fetch(apiUrl("/normalize"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: formData.questions, file }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setFormData((prev) => ({
+        ...prev,
+        questions: JSON.stringify(data, null, 2),
+      }));
+    } catch (err) {
+      setError("AI lỗi: " + err.message);
+    } finally {
+      setNormalizing(false);
+    }
   };
 
   const handleCreateRoom = () => {
@@ -298,6 +336,19 @@ export function Menu({ onJoinGame }) {
                     }))
                   }
                 />
+                <input
+                  type="file"
+                  accept=".txt,.csv,.md,.docx,.pdf,.png,.jpg,.jpeg,.webp"
+                  onChange={(e) => setQuestionFile(e.target.files[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  className={styles.clearColorButton}
+                  onClick={handleNormalize}
+                  disabled={normalizing}
+                >
+                  {normalizing ? "AI đang xử lý..." : "✨ AI chuẩn hóa"}
+                </button>
               </div>
             </div>
 
