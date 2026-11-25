@@ -1,8 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import socketService from "../services/socket";
 import styles from "./room.module.css";
 import { apiUrl } from "../utils/urls.js";
 import { Button } from "../components/Button.jsx";
+
+// Phải khớp với MAX_PLAYERS_PER_ROOM ở backend/src/managers/rooms.manager.js
+const MAX_PLAYERS_PER_ROOM = 6;
+// Số phòng tối đa hiển thị trên một trang
+const ROOMS_PER_PAGE = 4;
 
 /**
  * @param {{onJoinGame: (roomId: string) => void}} props
@@ -20,6 +25,13 @@ export function Menu({ onJoinGame }) {
 
   const [questionFile, setQuestionFile] = useState(null);
   const [normalizing, setNormalizing] = useState(false);
+
+  // Ô nhập đang gõ (chưa tìm) và kết quả tìm kiếm đã chốt khi nhấn Enter
+  const [searchDraft, setSearchDraft] = useState("");
+  const [searchResult, setSearchResult] = useState(null); // { term, ids } | null
+
+  // Trang hiện tại của danh sách phòng (bắt đầu từ 1)
+  const [page, setPage] = useState(1);
 
   const socket = socketService.getSocket();
 
@@ -48,17 +60,17 @@ export function Menu({ onJoinGame }) {
       });
     };
 
+    // Server phát số người trong phòng mỗi khi có người vào/ra
+    const onPlayerCount = ({ roomId, count }) => {
+      setRooms((prev) => {
+        if (!prev[roomId]) return prev;
+        return { ...prev, [roomId]: { ...prev[roomId], playerCount: count } };
+      });
+    };
+
     const onRoomJoined = (data) => {
       console.log("Joined room:", data);
       const playerId = getPlayerId();
-      // let color;
-      // color = getRandomColor();
-      // const available_colors = Object.values(data.room.players).map(p => p.color);
-      // if (!formData.color) {
-      //   while (!available_colors.includes(color)) {
-      //     color = getRandomColor();
-      //   }
-      // }
       onJoinGame({
         roomId: data.roomId,
         playerId,
@@ -84,6 +96,7 @@ export function Menu({ onJoinGame }) {
 
     socket.on("room:created", onRoomCreated);
     socket.on("room:deleted", onRoomDeleted);
+    socket.on("room:player-count", onPlayerCount);
     socket.on("room:joined", onRoomJoined);
     socket.on("player:registered", onPlayerRegistered);
     socket.on("player:unregistered", onPlayerUnregistered);
@@ -96,6 +109,7 @@ export function Menu({ onJoinGame }) {
     return () => {
       socket.off("room:created", onRoomCreated);
       socket.off("room:deleted", onRoomDeleted);
+      socket.off("room:player-count", onPlayerCount);
       socket.off("room:joined", onRoomJoined);
       socket.off("player:registered", onPlayerRegistered);
       socket.off("player:unregistered", onPlayerUnregistered);
@@ -134,6 +148,7 @@ export function Menu({ onJoinGame }) {
 
     setError("");
   };
+
   const handleBackToRegister = () => {
     const playerId = getPlayerId();
     socket.emit("player:unregister", { playerId });
@@ -173,6 +188,47 @@ export function Menu({ onJoinGame }) {
       setNormalizing(false);
     }
   };
+
+  // Chỉ tìm khi nhấn Enter (bỏ qua lúc đang gõ tiếng Việt có dấu)
+  const handleSearchKeyDown = (e) => {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    const term = searchDraft.trim();
+    if (!term) {
+      setSearchResult(null);
+      setPage(1);
+      return;
+    }
+    const upper = term.toUpperCase();
+    const ids = Object.keys(rooms).filter((id) =>
+      id.toUpperCase().includes(upper),
+    );
+    setSearchResult({ term, ids });
+    setPage(1);
+  };
+
+  const clearSearch = () => {
+    setSearchResult(null);
+    setSearchDraft("");
+    setPage(1);
+  };
+
+  // Khi đang có kết quả tìm kiếm thì chỉ hiện các phòng đã khớp, còn không thì hiện tất cả
+  const visibleRooms = searchResult
+    ? searchResult.ids.map((id) => rooms[id]).filter(Boolean)
+    : Object.values(rooms);
+
+  // Phân trang: cắt danh sách theo trang, và giữ trang hợp lệ khi số phòng thay đổi
+  const totalPages = Math.max(
+    1,
+    Math.ceil(visibleRooms.length / ROOMS_PER_PAGE),
+  );
+  const currentPage = Math.min(page, totalPages);
+  const pageRooms = visibleRooms.slice(
+    (currentPage - 1) * ROOMS_PER_PAGE,
+    currentPage * ROOMS_PER_PAGE,
+  );
+  const goPrev = () => setPage(Math.max(1, currentPage - 1));
+  const goNext = () => setPage(Math.min(totalPages, currentPage + 1));
 
   const handleCreateRoom = () => {
     if (!isRegisteredRef.current) {
@@ -219,6 +275,16 @@ export function Menu({ onJoinGame }) {
       .then((data) => {
         console.log(data);
         if (data?.players) {
+          const alreadyIn = Boolean(data.players[getPlayerId()]);
+          if (
+            !alreadyIn &&
+            Object.keys(data.players).length >= MAX_PLAYERS_PER_ROOM
+          ) {
+            setError(
+              `Phòng đã đầy (${MAX_PLAYERS_PER_ROOM}/${MAX_PLAYERS_PER_ROOM} người)`,
+            );
+            return;
+          }
           const taken_colors = Object.values(data.players).map((p) => p.color);
           const taken_names = Object.values(data.players).map((p) => p.name);
           if (taken_names.includes(formData.name)) {
@@ -252,7 +318,7 @@ export function Menu({ onJoinGame }) {
         />
       )}
       <div className={styles.card}>
-        <h1 className={styles.title}>Among Us</h1>
+        <h1 className={styles.title}>Quiz Crew</h1>
         {!isRegistered ? (
           <div className={styles.section}>
             <div className={styles.registrationLayout}>
@@ -356,33 +422,70 @@ export function Menu({ onJoinGame }) {
           </div>
         ) : (
           <div className={styles.section}>
-            <p className={styles.welcome}>Welcome, {formData.name}!</p>
+            <p className={styles.welcome}>Chào mừng, {formData.name}!</p>
+
+            <div className={styles.searchBox}>
+              <input
+                type="text"
+                placeholder="Nhập mã phòng rồi nhấn Enter..."
+                value={searchDraft}
+                onChange={(e) => setSearchDraft(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                className={styles.input}
+              />
+              {searchResult && (
+                <button
+                  type="button"
+                  className={styles.clearColorButton}
+                  onClick={clearSearch}
+                >
+                  Xóa tìm kiếm
+                </button>
+              )}
+            </div>
+
             <div>
-              {Object.keys(rooms).length > 0 ? (
+              {visibleRooms.length > 0 ? (
                 <div>
-                  <h3 className={styles.subtitle}>Available Rooms:</h3>
-                  <ul className={styles.roomList}>
-                    {Object.values(rooms).map((room) => (
-                      <li
-                        className={styles.lobbyCard}
+                  <div className={styles.roomGrid}>
+                    {pageRooms.map((room) => (
+                      <RoomCard
                         key={room.id}
-                        onClick={() => handleJoinRoom(room.id)}
-                      >
-                        <span className={styles.roomId}>{room.id}</span> - Host:{" "}
-                        <span className={styles.highlight}>
-                          {room.host.name}
-                        </span>{" "}
-                        - Players:{" "}
-                        <span className={styles.highlight}>
-                          {Object.keys(room.players).length}
-                        </span>
-                      </li>
+                        room={room}
+                        onJoin={handleJoinRoom}
+                      />
                     ))}
-                  </ul>
+                  </div>
+
+                  {visibleRooms.length > ROOMS_PER_PAGE && (
+                    <div className={styles.pagination}>
+                      <button
+                        type="button"
+                        className={styles.pageButton}
+                        onClick={goPrev}
+                        disabled={currentPage === 1}
+                      >
+                        ← Trước
+                      </button>
+                      <span className={styles.pageInfo}>
+                        Trang {currentPage} / {totalPages}
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.pageButton}
+                        onClick={goNext}
+                        disabled={currentPage === totalPages}
+                      >
+                        Sau →
+                      </button>
+                    </div>
+                  )}
                 </div>
+              ) : searchResult ? (
+                <RoomNotFound term={searchResult.term} />
               ) : (
                 <p className={styles.noRooms}>
-                  No available rooms. Create one!
+                  Hiện không có phòng
                 </p>
               )}
             </div>
@@ -393,6 +496,54 @@ export function Menu({ onJoinGame }) {
         {error && <p className={styles.error}>{error}</p>}
       </div>
     </div>
+  );
+}
+
+/**
+ * Thẻ một phòng trong lưới: mã phòng, trạng thái, host, số người và thanh tiến độ.
+ * @param {{room: any, onJoin: (roomId: string) => void}} props
+ */
+function RoomCard({ room, onJoin }) {
+  const count = getRoomCount(room);
+  const full = count >= MAX_PLAYERS_PER_ROOM;
+  const color = full ? "#ff4d4f" : "#4caf50";
+  const percent = Math.min(100, (count / MAX_PLAYERS_PER_ROOM) * 100);
+
+  return (
+    <button
+      type="button"
+      className={`${styles.roomCard} ${full ? styles.roomCardFull : ""}`}
+      onClick={() => onJoin(room.id)}
+      disabled={full}
+    >
+      <div className={styles.roomCardHeader}>
+        <span className={styles.roomCardCode}>{room.id}</span>
+        <span
+          className={styles.roomCardBadge}
+          style={{ color, borderColor: color }}
+        >
+          {full ? "Đầy" : "Còn chỗ"}
+        </span>
+      </div>
+
+      <div className={styles.roomCardHost}>
+        Chủ phòng: <strong>{room.host?.name ?? "?"}</strong>
+      </div>
+
+      <div className={styles.roomCardCount}>
+        <span style={{ color, fontWeight: "bold" }}>
+          {count}/{MAX_PLAYERS_PER_ROOM}
+        </span>{" "}
+        người chơi
+      </div>
+
+      <div className={styles.roomCardBar}>
+        <div
+          className={styles.roomCardFill}
+          style={{ width: `${percent}%`, background: color }}
+        />
+      </div>
+    </button>
   );
 }
 
@@ -448,6 +599,7 @@ const getPlayerId = () => {
   }
   return playerId;
 };
+
 /**
  * Available Among Us colors
  */
@@ -472,6 +624,28 @@ function getRandomColor() {
 
 function getAvailableColors() {
   return PLAYER_COLORS;
+}
+
+/**
+ * Số người trong phòng: ưu tiên số do server phát realtime, sau đó mới tới danh sách players.
+ * @param {{playerCount?: number, players?: Record<string, unknown>}} room
+ * @returns {number}
+ */
+function getRoomCount(room) {
+  return room.playerCount ?? Object.keys(room.players ?? {}).length;
+}
+
+/**
+ * Hiển thị khi tìm kiếm không có phòng nào khớp.
+ * @param {{term: string}} props
+ */
+function RoomNotFound({ term }) {
+  return (
+    <div className={styles.noRooms}>
+      <h3 className={styles.subtitle}>Not found</h3>
+      <p>Không tìm thấy phòng nào khớp với "{term}".</p>
+    </div>
+  );
 }
 
 export default Menu;

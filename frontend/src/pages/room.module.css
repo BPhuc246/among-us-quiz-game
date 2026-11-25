@@ -77,7 +77,6 @@
 .welcome {
   color: #4ecca3;
   font-size: 18px;
-  margin: 0 0 16px 0;
   text-shadow: 0 0 10px rgba(78, 204, 163, 0.4);
 }
 
@@ -367,4 +366,130 @@
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.searchBox {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+}
+
+.searchBox .input {
+  flex: 1;
+}
+
+/* ===== Lưới phòng: 2 cột, tối đa 4 thẻ mỗi trang ===== */
+.roomGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 12px 0;
+}
+
+.roomCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(20, 24, 40, 0.85);
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.roomCard:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: #4caf50;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.roomCard:disabled,
+.roomCardFull {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.roomCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.roomCardCode {
+  font-family: monospace;
+  font-size: 1.1rem;
+  font-weight: bold;
+  letter-spacing: 2px;
+}
+
+.roomCardBadge {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: 999px;
+}
+
+.roomCardHost {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+.roomCardCount {
+  font-size: 0.9rem;
+}
+
+.roomCardBar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.roomCardFill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+/* ===== Phân trang ===== */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.pageButton {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+
+.pageButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pageInfo {
+  min-width: 90px;
+  text-align: center;
+}
+
+/* Màn hình hẹp: một cột */
+@media (max-width: 600px) {
+  .roomGrid {
+    grid-template-columns: 1fr;
+  }
 }

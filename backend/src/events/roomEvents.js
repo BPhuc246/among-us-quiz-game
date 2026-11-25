@@ -1,5 +1,8 @@
 import { PlayersManager } from "../managers/players.manager.js";
-import { RoomsManager } from "../managers/rooms.manager.js";
+import {
+    RoomsManager,
+    MAX_PLAYERS_PER_ROOM,
+} from "../managers/rooms.manager.js";
 import { TasksManager } from "../managers/tasks.manager.js";
 
 /**
@@ -25,6 +28,20 @@ const CHAT_COOLDOWN_MS = 500;
  */
 export const registerRoomEvents = (io, socket) => {
     /**
+     * Phát số người trong phòng cho TOÀN BỘ client (kể cả đang ở sảnh),
+     * để danh sách phòng cập nhật ngay khi có người vào/ra.
+     * @param {string} roomId
+     * @returns {void}
+     */
+    const broadcastPlayerCount = (roomId) => {
+        const room = RoomsManager.fetchRoom(roomId);
+        io.emit("room:player-count", {
+            roomId,
+            count: room ? Object.keys(room.players).length : 0,
+        });
+    };
+
+    /**
      * @param {string} roomId
      * @returns {void}
      */
@@ -33,6 +50,7 @@ export const registerRoomEvents = (io, socket) => {
             roomId,
             ...RoomsManager.getReadyStatus(roomId),
         });
+        broadcastPlayerCount(roomId);
     };
 
     /**
@@ -137,10 +155,6 @@ export const registerRoomEvents = (io, socket) => {
             return;
         }
 
-        if (player.roomId && player.roomId !== data.roomId) {
-            roomLeave({ playerId: data.playerId });
-        }
-
         const room = RoomsManager.fetchRoom(data.roomId);
         if (!room || room.started) {
             socket.emit("room:join:error", {
@@ -151,6 +165,19 @@ export const registerRoomEvents = (io, socket) => {
                 data.roomId,
             );
             return;
+        }
+
+        // Kiểm tra đầy TRƯỚC khi rời phòng cũ
+        const alreadyInRoom = Boolean(room.players[data.playerId]);
+        if (!alreadyInRoom && RoomsManager.isFull(data.roomId)) {
+            socket.emit("room:join:error", {
+                message: `Phòng đã đầy (tối đa ${MAX_PLAYERS_PER_ROOM} người).`,
+            });
+            return;
+        }
+
+        if (player.roomId && player.roomId !== data.roomId) {
+            roomLeave({ playerId: data.playerId });
         }
 
         const joinedPlayer = RoomsManager.players.add(data.roomId, player);
@@ -202,7 +229,11 @@ export const registerRoomEvents = (io, socket) => {
 
         const win = RoomsManager.checkWin(roomId);
         console.log("Win condition check after player leave:", win);
-        if (win !== null && remainingRoom && !remainingRoom.eliminationInProgress) {
+        if (
+            win !== null &&
+            remainingRoom &&
+            !remainingRoom.eliminationInProgress
+        ) {
             remainingRoom.started = false;
             io.to(roomId).emit("game:ended", { roomId, isImposter: win });
         }
@@ -371,7 +402,11 @@ export const registerRoomEvents = (io, socket) => {
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
-                if (win !== null && remainingRoom && !remainingRoom.eliminationInProgress) {
+                if (
+                    win !== null &&
+                    remainingRoom &&
+                    !remainingRoom.eliminationInProgress
+                ) {
                     remainingRoom.started = false;
                     io.to(roomId).emit("game:ended", {
                         roomId,
@@ -411,7 +446,11 @@ export const registerRoomEvents = (io, socket) => {
 
                 // Check win condition after player removal
                 const win = RoomsManager.checkWin(roomId);
-                if (win !== null && remainingRoom && !remainingRoom.eliminationInProgress) {
+                if (
+                    win !== null &&
+                    remainingRoom &&
+                    !remainingRoom.eliminationInProgress
+                ) {
                     remainingRoom.started = false;
                     io.to(roomId).emit("game:ended", {
                         roomId,
