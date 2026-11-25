@@ -4,6 +4,7 @@ import { toPublicQuestion } from "./questions.manager.js";
 
 // Clear floor below the emergency table on the current Skeld collision map.
 export const GAME_SPAWN = Object.freeze({ x: 560, y: 180 });
+export const MAX_PLAYERS_PER_ROOM = 6;
 
 /**
  * @typedef {import('../types/room.type.js').Player} Player
@@ -132,10 +133,19 @@ export const RoomsManager = {
          * @returns {Player|undefined}
          */
         add(roomId, player) {
-            if (!rooms[roomId]) return undefined;
+            const room = rooms[roomId];
+            if (!room) return undefined;
+            // Người đã ở trong phòng thì không tính thêm; phòng đủ người thì từ chối
+            const alreadyIn = Boolean(room.players[player.id]);
+            if (
+                !alreadyIn &&
+                Object.keys(room.players).length >= MAX_PLAYERS_PER_ROOM
+            ) {
+                return undefined;
+            }
             const updated = PlayersManager.setRoomId(player.id, roomId);
             if (!updated) return undefined;
-            rooms[roomId].players[updated.id] = updated;
+            room.players[updated.id] = updated;
             return updated;
         },
 
@@ -311,6 +321,17 @@ export const RoomsManager = {
      */
     fetchRoom(roomId) {
         return rooms[roomId];
+    },
+
+    /**
+     * @param {string} roomId
+     * @returns {boolean}
+     */
+    isFull(roomId) {
+        const room = rooms[roomId];
+        return (
+            !!room && Object.keys(room.players).length >= MAX_PLAYERS_PER_ROOM
+        );
     },
 
     /**
