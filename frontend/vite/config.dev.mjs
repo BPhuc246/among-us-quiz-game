@@ -50,6 +50,12 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                     secure: false,
                 },
+                // AI chuẩn hóa câu hỏi (POST /normalize)
+                '/normalize': {
+                    target: backendTarget,
+                    changeOrigin: true,
+                    secure: false,
+                },
             }
         }
     };

@@ -72,7 +72,7 @@ app.use(
         methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     }),
 );
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
 app.use("/", apiRouter);
 
 const server = http.createServer(app);
