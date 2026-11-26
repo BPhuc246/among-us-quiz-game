@@ -10,8 +10,8 @@ import { Game } from "./scenes/Game";
 // https://docs.phaser.io/api-documentation/typedef/types-core#gameconfig
 const config = {
     type: Phaser.AUTO,
-    width: 1024,
-    height: 768,
+    width: 1280,
+    height: 720,
     parent: "game-container",
     backgroundColor: "#000000",
     // Keep high-resolution map artwork smooth when it is scaled to the game world.
@@ -28,7 +28,7 @@ const config = {
         },
     },
     scale: {
-        mode: Phaser.Scale.FIT,
+        mode: Phaser.Scale.NONE,
         autoCenter: Phaser.Scale.NO_CENTER,
     },
     scene: [WaitingLobby, Game],

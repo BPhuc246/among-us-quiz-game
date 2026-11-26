@@ -23,11 +23,16 @@ export default function QuizTasks({ socket, roomId, active }) {
 
   const showTasks = Boolean(active && state && !inMeeting);
 
+  // Báo cho Phaser các trạm còn nhiệm vụ chưa làm (không trùng trạm)
   const publishAssigned = useCallback(() => {
     const s = stateRef.current;
     const ids =
       visibleRef.current && s
-        ? s.tasks.filter((t) => !t.completed).map((t) => t.stationId)
+        ? [
+            ...new Set(
+              s.tasks.filter((t) => !t.completed).map((t) => t.stationId),
+            ),
+          ]
         : [];
     EventBus.emit("task:assigned", ids);
   }, []);
@@ -42,16 +47,20 @@ export default function QuizTasks({ socket, roomId, active }) {
 
   const openStation = useCallback((stationId) => {
     const s = stateRef.current;
-    const task = s?.tasks.find((t) => t.stationId === stationId);
+    const stationTasks =
+      s?.tasks.filter((t) => t.stationId === stationId) ?? [];
 
-    if (!task) {
+    if (stationTasks.length === 0) {
       console.warn("[QuizTasks] không có nhiệm vụ cho trạm", stationId);
       setNotice("Trạm này không nằm trong nhiệm vụ của bạn.");
       EventBus.emit("task:close");
       return;
     }
-    if (task.completed) {
-      setNotice("Nhiệm vụ ở trạm này đã hoàn thành.");
+
+    // Một trạm có thể có 2 nhiệm vụ: mở nhiệm vụ đầu tiên chưa làm
+    const task = stationTasks.find((t) => !t.completed);
+    if (!task) {
+      setNotice("Các nhiệm vụ ở trạm này đã hoàn thành.");
       EventBus.emit("task:close");
       return;
     }
@@ -159,8 +168,9 @@ export default function QuizTasks({ socket, roomId, active }) {
     ? Math.round((100 * progress.completed) / progress.total)
     : 0;
 
+  // Mọi thao tác theo questionId, vì nhiều nhiệm vụ có thể cùng trạm
   const openIndex = openTask
-    ? tasks.findIndex((t) => t.stationId === openTask.stationId)
+    ? tasks.findIndex((t) => t.questionId === openTask.questionId)
     : -1;
   const question = openTask
     ? state.questions.find((q) => q.id === openTask.questionId)
@@ -198,7 +208,9 @@ export default function QuizTasks({ socket, roomId, active }) {
                 ? {
                     ...prev,
                     tasks: prev.tasks.map((t) =>
-                      t.stationId === stationId ? { ...t, completed: true } : t,
+                      t.questionId === questionId
+                        ? { ...t, completed: true }
+                        : t,
                     ),
                   }
                 : prev,
@@ -243,7 +255,7 @@ export default function QuizTasks({ socket, roomId, active }) {
 
         <ul className={styles.taskList}>
           {tasks.map((t) => (
-            <li key={t.stationId} className={t.completed ? styles.done : ""}>
+            <li key={t.questionId} className={t.completed ? styles.done : ""}>
               <span>{t.completed ? "✓" : "○"}</span>
               <span>{STATION_NAME[t.stationId] ?? t.stationId}</span>
             </li>

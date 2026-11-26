@@ -67,11 +67,29 @@
  */
 
 /**
+ * Trạng thái nhiệm vụ của một người chơi trong ván.
+ * - batch: đợt nhiệm vụ hiện tại (tối đa 6, không trùng câu trong đợt)
+ * - revealed: số nhiệm vụ đang mở, tính theo thứ tự trong batch
+ * - completed: id câu đã làm xong trong đợt hiện tại
+ * - lifetimeDone: tổng số câu đã làm từ đầu ván (dùng cho crew)
+ * - roundDone: số câu đã làm từ lần vote gần nhất (dùng cho điều kiện kill của imposter)
  * @typedef {{
- *   assignments: {questionId: string, stationId: string}[],
+ *   batch: {questionId: string, stationId: string}[],
  *   revealed: number,
- *   completed: string[]
- * }} CrewTaskState
+ *   completed: string[],
+ *   lifetimeDone: number,
+ *   roundDone: number
+ * }} PlayerTaskState
+ */
+
+/**
+ * Thông tin tiến độ chung của phòng.
+ * - shownCompleted: số tiến độ đang hiển thị, chỉ đổi sau mỗi lần vote
+ * - prevImposterRoundDone: số câu imposter đã làm ở đợt họp trước, dùng để trừ tiến độ crew
+ * @typedef {{
+ *   shownCompleted: number,
+ *   prevImposterRoundDone: number
+ * }} TaskMeta
  */
 
 /**
@@ -84,13 +102,14 @@
  *   players: {[key: string]: Player},
  *   currentMeeting: MeetingState | null,
  *   questions: Question[],
- *   taskState?: {[playerId: string]: CrewTaskState},
+ *   taskState?: {[playerId: string]: PlayerTaskState},
+ *   taskMeta?: TaskMeta,
  *   deadBodies?: {[playerId: string]: {playerId: string, x: number, y: number, color: string}}
  * }} GameRoom
  */
 
 /**
- * @typedef {Omit<GameRoom, 'questions'> & {questions: PublicQuestion[]}} PublicGameRoom
+ * @typedef {Omit<GameRoom, 'questions' | 'taskState' | 'taskMeta'> & {questions: PublicQuestion[]}} PublicGameRoom
  */
 
 export {};

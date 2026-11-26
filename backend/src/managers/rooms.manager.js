@@ -1,5 +1,5 @@
 import { PlayersManager } from "./players.manager.js";
-import { TasksManager } from "./tasks.manager.js";
+import { TasksManager, TASK_GOAL } from "./tasks.manager.js";
 import { toPublicQuestion } from "./questions.manager.js";
 
 // Clear floor below the emergency table on the current Skeld collision map.
@@ -281,7 +281,8 @@ export const RoomsManager = {
                     ejected.isAlive = false;
                 }
             }
-
+            
+            TasksManager.settleRound(room);
             meeting.results = { ejectedId, tie, counts, votes };
             return meeting.results;
         },
@@ -392,9 +393,9 @@ export const RoomsManager = {
         const alivePlayers = players.filter((p) => p.isAlive);
         const aliveImposters = alivePlayers.filter((p) => p.id === imposterId);
         const aliveCrewmates = alivePlayers.filter((p) => p.id !== imposterId);
+        // Crew thắng khi tiến độ hiển thị đạt mục tiêu
         const progress = TasksManager.progress(room);
-        if (progress.total > 0 && progress.completed === progress.total)
-            return false;
+        if (progress.completed >= TASK_GOAL) return false;
 
         console.log(
             `Alive Imposters: ${aliveImposters.length}, Alive Crewmates: ${aliveCrewmates.length}`,
