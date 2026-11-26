@@ -24,6 +24,27 @@ import {
     enableVisionSystem,
 } from "../utils/vision.js";
 
+const HIDDEN_PHASER_TEXTURES = new Set(["kill", "meeting"]);
+
+/**
+ * Ẩn các nút Phaser trùng với thanh nút React, kể cả khi nằm trong container.
+ * @param {Phaser.Scene} scene
+ */
+function hidePhaserActionButtons(scene) {
+    const walk = (list) => {
+        for (const obj of list) {
+            const key = obj.texture?.key;
+            if (key && HIDDEN_PHASER_TEXTURES.has(key)) {
+                obj.setVisible(false);
+                obj.setAlpha(0);
+                obj.disableInteractive?.();
+            }
+            if (Array.isArray(obj.list)) walk(obj.list);
+        }
+    };
+    walk(scene.children.list);
+}
+
 export class Game extends BaseGameScene {
     // ====== CONFIGURATION AND INITIALIZATION ======
     constructor() {
@@ -75,16 +96,6 @@ export class Game extends BaseGameScene {
             this.meetingZone.body.setAllowGravity(false);
             this.meetingZone.visible = false;
         }
-        this.meetingBtn = this.add
-            .image(220, 410, "meeting")
-            .setScale(0.7)
-            .setDepth(1000)
-            .setScrollFactor(0)
-            .setInteractive()
-            .on("pointerdown", () => {
-                this.startMeeting();
-            });
-        this.ui.add(this.meetingBtn);
     }
 
     // ====== PHASER LIFECYCLE METHODS ======
@@ -155,6 +166,14 @@ export class Game extends BaseGameScene {
         this.createAnimations();
         this.handleGameEvents();
 
+        // Nút HỌP ở React gửi yêu cầu, Phaser kiểm tra vùng họp rồi mới gọi họp
+        this.onMeetingRequest = () => {
+            if (this.isInMeetingZone && !this.meetingActive && !this.isGhost) {
+                this.startMeeting();
+            }
+        };
+        EventBus.on("meeting:request", this.onMeetingRequest);
+
         // Wait for both player setup and imposter role assignment before initializing imposter mechanics
         Promise.all([prom1, this.imposterProm]).then((results) => {
             if (!this.sys.isActive() || !this.player?.body) return;
@@ -185,6 +204,8 @@ export class Game extends BaseGameScene {
      * @param {number} delta - Time elapsed since last frame in milliseconds
      */
     update(time, delta) {
+        hidePhaserActionButtons(this);
+
         if (!this.player) return;
 
         // Freeze gameplay until React finishes the 5-second role reveal.
@@ -215,11 +236,11 @@ export class Game extends BaseGameScene {
         ) {
             if (!this.isInMeetingZone) {
                 this.isInMeetingZone = true;
-                this.meetingBtn.visible = true;
+                EventBus.emit("meeting:nearby", true);
             }
         } else if (this.isInMeetingZone) {
             this.isInMeetingZone = false;
-            this.meetingBtn.visible = false;
+            EventBus.emit("meeting:nearby", false);
         }
     }
 
@@ -260,6 +281,8 @@ export class Game extends BaseGameScene {
             }
         }
         super.shutdown();
+        EventBus.off("meeting:request", this.onMeetingRequest);
+        EventBus.emit("meeting:nearby", false);
     }
 
     // ANIMATION SETUP

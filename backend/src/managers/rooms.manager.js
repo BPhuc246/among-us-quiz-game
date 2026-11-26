@@ -82,6 +82,7 @@ export const RoomsManager = {
             questions: room.questions.map(toPublicQuestion),
         };
         delete publicRoom.taskState;
+        delete publicRoom.taskMeta;
         return publicRoom;
     },
 
@@ -281,7 +282,7 @@ export const RoomsManager = {
                     ejected.isAlive = false;
                 }
             }
-            
+
             TasksManager.settleRound(room);
             meeting.results = { ejectedId, tie, counts, votes };
             return meeting.results;

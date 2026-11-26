@@ -3,7 +3,6 @@ import { PhaserGame } from "./PhaserGame";
 import socketService from "./services/socket";
 import Menu from "./pages/Menu.jsx";
 import styles from "./App.module.css";
-import Button from "./components/Button.jsx";
 import Meeting from "./components/Meeting.jsx";
 import EndGame from "./components/EndGame.jsx";
 import { EventBus } from "./game/EventBus";
@@ -12,6 +11,7 @@ import Eliminate from "./components/Eliminate.jsx";
 import { ToastContainer } from "./components/Toast.jsx";
 import QuizTasks from "./components/QuizTasks.jsx";
 import Chat from "./components/Chat.jsx";
+import GameActionBar from "./components/GameActionBar.jsx";
 
 const PAGES = {
   MENU: "lobby",
@@ -27,13 +27,16 @@ function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [socket, setSocket] = useState(null);
   const playerIdRef = useRef(null);
-  const [error, setError] = useState(null);
+  const [error] = useState(null);
   const debug = useRef(import.meta.env.VITE_DEBUG === "true");
   const roleResolveRef = useRef(null);
+
   // Meeting state
   const [meetingActive, setMeetingActive] = useState(false);
   const [meetingData, setMeetingData] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(60000);
+
+  // Game state
   const [gameResult, setGameResult] = useState(null);
   const [isLocalPlayerImposter, setIsLocalPlayerImposter] = useState(false);
   const [isLocalPlayerHost, setIsLocalPlayerHost] = useState(false);
@@ -43,16 +46,37 @@ function App() {
   const [lobbyPlayers, setLobbyPlayers] = useState([]);
   const [eliminationData, setEliminationData] = useState(null);
 
+  // Thanh hành động góc dưới bên phải
+  const [taskAction, setTaskAction] = useState(null);
+  const [killTarget, setKillTarget] = useState(null);
+  const [reportTarget, setReportTarget] = useState(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatStatus, setChatStatus] = useState({ available: false, unread: 0 });
+  const [meetingNearby, setMeetingNearby] = useState(false);
+
+  // Phaser báo mục tiêu gần nhất và vùng họp
+  useEffect(() => {
+    EventBus.on("kill:nearby", setKillTarget);
+    EventBus.on("report:nearby", setReportTarget);
+    EventBus.on("meeting:nearby", setMeetingNearby);
+    return () => {
+      EventBus.off("kill:nearby", setKillTarget);
+      EventBus.off("report:nearby", setReportTarget);
+      EventBus.off("meeting:nearby", setMeetingNearby);
+    };
+  }, []);
+
+  // Cảnh báo nếu chưa kết nối được server sau 3 giây
   useEffect(() => {
     const timer = setTimeout(() => {
       if (window.showToast && !socketService.getSocket()?.connected) {
         window.showToast("Đang chờ kết nối máy chủ…", "warning", 4000);
       }
     }, 3000);
-
     return () => clearTimeout(timer);
   }, []);
 
+  // Socket và các sự kiện của phòng
   useEffect(() => {
     socketService.connect();
     const sockett = socketService.getSocket();
@@ -64,10 +88,12 @@ function App() {
 
     const handleConnect = () => setIsConnected(true);
     const handleDisconnect = () => setIsConnected(false);
+
     const handleReadyUpdate = (data) => {
       if (data?.roomId !== roomIdRef.current) return;
       setLobbyPlayers(data.players || []);
     };
+
     const handleStartGame = (data) => {
       console.log(
         "Game started event received in App:",
@@ -107,12 +133,12 @@ function App() {
       });
     };
 
-    // Meeting Event from Phaser
+    // Sự kiện họp từ Phaser
     const handleMeetingStarted = (data) => {
       console.log("Meeting started in App:", data);
       setMeetingData(data);
       setMeetingActive(true);
-      EventBus.emit("task:close"); // Mở khóa cờ taskModalOpen trong TaskManager
+      EventBus.emit("task:close"); // Đóng cửa sổ nhiệm vụ đang mở
       setTimeRemaining(60000);
     };
 
@@ -123,8 +149,8 @@ function App() {
       setEliminationData(data?.results?.ejectedPlayer ?? null);
     };
 
-    // The server ends this sequence after the 5-second ejection animation.
-    // If the vote ended the game, keep this screen until game:ended arrives.
+    // Server kết thúc chuỗi này sau hoạt ảnh loại 5 giây.
+    // Nếu vote làm kết thúc ván thì giữ màn hình đến khi có game:ended.
     const handleEliminationFinished = (data) => {
       if (data?.roomId && data.roomId !== roomIdRef.current) return;
       if (data?.gameEnded) return;
@@ -144,14 +170,17 @@ function App() {
     };
 
     const handleVote = (data) => {
-      console.log("Vote event received in App:", data, meetingData);
-      setMeetingData((prev) => ({
-        ...prev,
-        players: {
-          ...prev.players,
-          [data.callerId]: { ...prev.players[data.callerId], voted: true },
-        },
-      }));
+      console.log("Vote event received in App:", data);
+      setMeetingData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: {
+            ...prev.players,
+            [data.callerId]: { ...prev.players[data.callerId], voted: true },
+          },
+        };
+      });
     };
 
     const handleRole = (roleInfo) => {
@@ -173,11 +202,11 @@ function App() {
     sockett.on("meeting:voted", handleVote);
     sockett.on("meeting:elimination:finished", handleEliminationFinished);
     sockett.on("game:notif", handleNotif);
+    sockett.on("game:role", handleRole);
 
     EventBus.on("meeting:started", handleMeetingStarted);
     EventBus.on("meeting:ended", handleMeetingEnded);
     EventBus.on("game:ended", handleGameEnd);
-    sockett.on("game:role", handleRole);
 
     return () => {
       sockett.off("connect", handleConnect);
@@ -194,36 +223,7 @@ function App() {
     };
   }, []);
 
-  const handleJoinRoom = (data) => {
-    const joinedRoomId = data.roomId;
-    playerIdRef.current = data.playerId;
-
-    console.log("Joining room with ID:", joinedRoomId);
-    setRoomId(joinedRoomId);
-    roomIdRef.current = joinedRoomId;
-    setCurrentPage(PAGES.WAITING);
-    setIsLocalPlayerHost(data.isHost);
-  };
-
-  const handleStartGameBtn = () => {
-    if (!allGuestsReady) {
-      window.showToast?.("Chưa đủ người chơi sẵn sàng.", "warning", 3000);
-      return;
-    }
-    socket.emit("game:start", { roomId });
-  };
-
-  const handleBackToMenu = () => {
-    const playerId = sessionStorage.getItem("playerId");
-    if (socket && playerId) socket.emit("room:leave", { playerId });
-    EventBus.emit("task:close");
-    setRoomId(null);
-    setCurrentPage(PAGES.MENU);
-    setLobbyPlayers([]);
-    window.location.reload();
-  };
-
-  // Timer countdown for meeting
+  // Timer đếm ngược của cuộc họp
   useEffect(() => {
     if (!meetingActive) return;
 
@@ -240,17 +240,15 @@ function App() {
     return () => clearInterval(interval);
   }, [meetingActive]);
 
-  const handleVoteCallBack = (data) => {
-    data.roomId = roomId;
-    socket.emit("meeting:vote", data);
-  };
+  const handleJoinRoom = (data) => {
+    const joinedRoomId = data.roomId;
+    playerIdRef.current = data.playerId;
 
-  const handleEndMeeting = () => {
-    if (!socket || !roomId) return;
-    console.log("Ending meeting");
-    socket.emit("meeting:end", {
-      roomId: roomId,
-    });
+    console.log("Joining room with ID:", joinedRoomId);
+    setRoomId(joinedRoomId);
+    roomIdRef.current = joinedRoomId;
+    setCurrentPage(PAGES.WAITING);
+    setIsLocalPlayerHost(data.isHost);
   };
 
   const localLobbyPlayer = lobbyPlayers.find(
@@ -261,20 +259,85 @@ function App() {
   const guests = lobbyPlayers.filter((p) => !p.isHost);
   const allGuestsReady = guests.every((p) => p.isReady);
 
+  const handleStartGameBtn = () => {
+    if (!allGuestsReady) {
+      window.showToast?.("Chưa đủ người chơi sẵn sàng.", "warning", 3000);
+      return;
+    }
+    socket?.emit("game:start", { roomId });
+  };
+
   const handleToggleReady = () => {
     if (!socket || !roomId) return;
     socket.emit("player:ready", { roomId, ready: !localIsReady });
   };
 
+  const handleBackToMenu = () => {
+    const playerId = sessionStorage.getItem("playerId");
+    const reload = () => window.location.reload();
+    if (socket && playerId) {
+      // Server không gọi ack cho room:leave, nên timeout sẽ kích hoạt reload sau 1.5 giây
+      socket.timeout(1500).emit("room:leave", { playerId }, reload);
+    } else {
+      reload();
+    }
+    EventBus.emit("task:close");
+    setRoomId(null);
+    setCurrentPage(PAGES.MENU);
+    setLobbyPlayers([]);
+  };
+
+  const handleVoteCallBack = (data) => {
+    if (!socket || !roomId) return;
+    socket.emit("meeting:vote", { ...data, roomId });
+  };
+
+  const handleEndMeeting = () => {
+    if (!socket || !roomId) return;
+    console.log("Ending meeting");
+    socket.emit("meeting:end", { roomId });
+  };
+
+  const inRoom = currentPage === PAGES.GAME || currentPage === PAGES.WAITING;
+
   return (
     <div id="app">
       <ToastContainer />
+
       <QuizTasks
         socket={socket}
         roomId={roomId}
         active={currentPage === PAGES.GAME}
+        onTaskAction={setTaskAction}
       />
+
+      {inRoom && (
+        <GameActionBar
+          inGame={currentPage === PAGES.GAME}
+          inWaiting={currentPage === PAGES.WAITING}
+          isImposter={isLocalPlayerImposter}
+          isHost={isHost}
+          allGuestsReady={allGuestsReady}
+          localIsReady={localIsReady}
+          onStart={handleStartGameBtn}
+          onToggleReady={handleToggleReady}
+          onLeave={handleBackToMenu}
+          task={taskAction}
+          killTarget={killTarget}
+          reportTarget={reportTarget}
+          canMeet={meetingNearby && !meetingActive}
+          onMeet={() => EventBus.emit("meeting:request")}
+          chat={{
+            available: chatStatus.available,
+            unread: chatStatus.unread,
+            open: chatOpen,
+            onToggle: () => setChatOpen((v) => !v),
+          }}
+        />
+      )}
+
       {error && <p className={styles.error}>{error}</p>}
+
       {debug.current && (
         <div
           className={`${styles.statusBadge} ${isConnected ? styles.connected : styles.disconnected}`}
@@ -282,6 +345,7 @@ function App() {
           {isConnected ? "Connected" : "Disconnected"}
         </div>
       )}
+
       {roleIndicator && roleRevealData && (
         <RoleIndicator
           role={{ imposter: roleRevealData.isImposter }}
@@ -307,9 +371,10 @@ function App() {
         />
       )}
 
-      {(currentPage === PAGES.GAME || currentPage === PAGES.WAITING) && (
+      {inRoom && (
         <div className={styles.gameContainer}>
           <PhaserGame />
+
           {currentPage === PAGES.WAITING && (
             <div
               style={{
@@ -365,25 +430,6 @@ function App() {
             </div>
           )}
 
-          {currentPage === PAGES.WAITING &&
-            (isHost ? (
-              <Button
-                onClick={handleStartGameBtn}
-                children={
-                  allGuestsReady ? "Start Game" : "Chờ người chơi sẵn sàng"
-                }
-                className={styles.startBtn}
-              />
-            ) : (
-              <Button
-                onClick={handleToggleReady}
-                children={localIsReady ? "Hủy sẵn sàng" : "Sẵn sàng"}
-                className={styles.startBtn}
-              />
-            ))}
-          <button className={styles.backButton} onClick={handleBackToMenu}>
-            Leave
-          </button>
           <div className={styles.roomTag}>Room: {roomId}</div>
 
           <Chat
@@ -392,6 +438,10 @@ function App() {
             playerId={playerIdRef.current}
             started={currentPage === PAGES.GAME}
             meetingActive={meetingActive}
+            open={chatOpen}
+            onOpenChange={setChatOpen}
+            hideToggle
+            onStatus={setChatStatus}
           />
 
           {meetingActive && meetingData && (
