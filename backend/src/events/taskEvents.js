@@ -67,7 +67,10 @@ export function registerTaskEvents(io, socket) {
         }
 
         if (room.eliminationInProgress) {
-            reply({ ok: false, message: "Vui lòng chờ hoạt ảnh loại người chơi kết thúc." });
+            reply({
+                ok: false,
+                message: "Vui lòng chờ hoạt ảnh loại người chơi kết thúc.",
+            });
             return;
         }
 
@@ -75,27 +78,9 @@ export function registerTaskEvents(io, socket) {
         reply(result);
         if (!result.correct || result.alreadyCompleted) return;
 
-        // Giải đúng lần đầu: gửi lại danh sách (có nhiệm vụ mới) và cập nhật tiến độ cả đội
+        // Chỉ gửi lại danh sách nhiệm vụ cho người vừa làm.
+        // Tiến độ chung KHÔNG phát ở đây: chỉ cập nhật sau khi vote.
         socket.emit("game:tasks", TasksManager.snapshot(room, playerId));
-
-        const progress = TasksManager.progress(room);
-        io.to(room.id).emit("game:task-progress", {
-            roomId: room.id,
-            ...progress,
-        });
-
-        if (
-            progress.total > 0 &&
-            progress.completed === progress.total &&
-            room.started
-        ) {
-            room.started = false;
-            io.to(room.id).emit("game:ended", {
-                roomId: room.id,
-                isImposter: false,
-                reason: "tasks",
-            });
-        }
     };
 
     socket.on("tasks:get", tasksGet);

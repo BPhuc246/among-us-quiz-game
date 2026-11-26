@@ -1,5 +1,6 @@
 import { RoomsManager } from "../managers/rooms.manager.js";
 import { PlayersManager } from "../managers/players.manager.js";
+import { TasksManager } from "../managers/tasks.manager.js";
 
 /**
  * @typedef {import('../types/room.type.js').MeetingResults} MeetingResults
@@ -151,6 +152,14 @@ export const registerGameEvents = (io, socket) => {
         const killer = room.players[killerId];
         const victim = room.players[playerId];
 
+        if (!TasksManager.canImposterKill(room, killerId)) {
+            socket.emit("game:notif", {
+                message:
+                    "Bạn cần làm đủ 2 nhiệm vụ trong đợt này mới được giết.",
+            });
+            return;
+        }
+
         if (!killer || killer.isAlive === false) return reject("KILLER_DEAD");
         if (!victim || victim.isAlive === false) return reject("VICTIM_DEAD");
         if (playerId === killerId) return reject("SELF_KILL");
@@ -194,7 +203,8 @@ export const registerGameEvents = (io, socket) => {
             !room?.started ||
             room.currentMeeting?.isActive ||
             room.eliminationInProgress
-        ) return false;
+        )
+            return false;
         RoomsManager.meetings.create(data.roomId, data.callerId, meetingEnd);
 
         // Gửi riêng cho từng client để mỗi người chỉ thấy isImposter của chính mình
@@ -277,29 +287,36 @@ export const registerGameEvents = (io, socket) => {
     const meetingEnd = (data) => {
         console.log("Received meeting end", data);
 
-        data.results = RoomsManager.meetings.end(data.roomId);
-        if (!data.results) return;
+        const roomId = data.roomId;
+        const results = RoomsManager.meetings.end(roomId);
+        if (!results) return;
+        data.results = results;
 
-        const room = RoomsManager.fetchRoom(data.roomId);
+        const room = RoomsManager.fetchRoom(roomId);
         if (!room) return;
+
+        // settleRound đã chạy trong meetings.end, nên tiến độ mới đã sẵn sàng để phát
+        io.to(roomId).emit("game:task-progress", {
+            roomId,
+            ...TasksManager.progress(room),
+        });
 
         room.deadBodies = {};
 
         // Người bị loại cũng vào room spectator để thấy chat của người đã chết
-        const ejectedId = data.results.ejectedId;
+        const ejectedId = results.ejectedId;
         if (ejectedId) {
             for (const s of io.sockets.sockets.values()) {
-                if (s.data.playerId === ejectedId && s.rooms.has(data.roomId))
-                    s.join(spectatorRoomOf(data.roomId));
+                if (s.data.playerId === ejectedId && s.rooms.has(roomId)) {
+                    s.join(spectatorRoomOf(roomId));
+                }
             }
         }
 
-        const roomId = data.roomId;
-
         // Reveal the ejected player's public identity and role only after voting.
         const ejectedPlayer = ejectedId ? room.players[ejectedId] : null;
-        if (data.results && ejectedPlayer) {
-            data.results.ejectedPlayer = {
+        if (ejectedPlayer) {
+            results.ejectedPlayer = {
                 id: ejectedPlayer.id,
                 name: ejectedPlayer.name,
                 color: ejectedPlayer.color,
@@ -345,7 +362,7 @@ export const registerGameEvents = (io, socket) => {
             return;
         }
 
-        // A tie/no ejection has no elimination scene, so keep old immediate flow.
+        // Không có người bị loại (hòa hoặc bỏ phiếu trắng) thì không có hoạt ảnh, kết thúc ngay
         if (win !== null) {
             room.started = false;
             io.to(roomId).emit("game:ended", {

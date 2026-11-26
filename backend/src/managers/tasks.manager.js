@@ -4,6 +4,14 @@ import { toPublicQuestion } from "./questions.manager.js";
  * @typedef {import('../types/room.type.js').GameRoom} GameRoom
  * @typedef {import('../types/room.type.js').Question} Question
  * @typedef {{id: string, x: number, y: number}} Station
+ * @typedef {{questionId: string, stationId: string}} Assignment
+ * @typedef {{
+ *   batch: Assignment[],
+ *   revealed: number,
+ *   completed: string[],
+ *   lifetimeDone: number,
+ *   roundDone: number
+ * }} PlayerTaskState
  * @typedef {{completed: number, total: number}} TaskProgress
  * @typedef {{stationId?: unknown, questionId?: unknown, optionIndex?: unknown}} SubmitInput
  * @typedef {{
@@ -16,6 +24,17 @@ import { toPublicQuestion } from "./questions.manager.js";
  * }} SubmitResult
  */
 
+/** Tổng số nhiệm vụ crew cần hoàn thành để thắng. */
+export const TASK_GOAL = 60;
+/** Số nhiệm vụ tối đa trong một đợt, làm hết đợt mới được đợt mới. */
+export const BATCH_SIZE = 6;
+/** Số nhiệm vụ mở sẵn khi bắt đầu mỗi đợt. */
+export const MIN_VISIBLE_TASKS = 2;
+/** Imposter phải làm đủ số câu này trong đợt họp hiện tại mới được kill. */
+export const KILL_UNLOCK_TASKS = 2;
+
+export const TASK_USE_RADIUS = 55;
+
 /**
  * Tâm của từng ô nhiệm vụ. Id và tọa độ phải khớp với frontend taskLocations.js.
  * @type {readonly Station[]}
@@ -27,9 +46,6 @@ export const TASK_STATIONS = Object.freeze([
     { id: "skeld_task_04", x: 636.7, y: 283.7 },
     { id: "skeld_task_05", x: 665.7, y: 438.8 },
 ]);
-
-export const TASK_USE_RADIUS = 55;
-export const MIN_VISIBLE_TASKS = 2;
 
 /**
  * @template T
@@ -55,58 +71,131 @@ const findQuestion = (room, questionId) =>
     room.questions.find((q) => q.id === questionId);
 
 /**
+ * Tạo một đợt mới: tối đa BATCH_SIZE câu, không trùng câu trong cùng đợt.
+ * Trạm được xoay vòng qua danh sách, nên khi đợt có nhiều hơn số trạm thì một trạm sẽ có 2 nhiệm vụ.
+ * @param {GameRoom} room
+ * @param {() => number} random
+ * @returns {Assignment[]}
+ */
+const buildBatch = (room, random) => {
+    const size = Math.min(BATCH_SIZE, room.questions.length);
+    const questions = shuffle(room.questions, random).slice(0, size);
+    const stations = shuffle(TASK_STATIONS, random);
+    return questions.map((q, i) => ({
+        questionId: q.id,
+        stationId: stations[i % stations.length].id,
+    }));
+};
+
+/**
+ * Đặt đợt mới: 6 nhiệm vụ đều được mở, tất cả đều chưa làm.
+ * @param {PlayerTaskState} state
+ * @param {GameRoom} room
+ * @param {() => number} random
+ * @returns {void}
+ */
+const resetBatch = (state, room, random) => {
+    state.batch = buildBatch(room, random);
+    state.revealed = state.batch.length; // mở đủ cả đợt
+    state.completed = [];
+};
+
+/**
  * @param {GameRoom} room
  * @param {() => number} [random]
  * @returns {void}
  */
 const initialize = (room, random = Math.random) => {
-    /** @type {NonNullable<GameRoom["taskState"]>} */
-    const taskState = {};
-    room.taskState = taskState;
-
-    const perCrew = Math.min(room.questions.length, TASK_STATIONS.length);
-    if (perCrew < MIN_VISIBLE_TASKS) return;
+    room.taskState = {};
+    room.taskMeta = { shownCompleted: 0, prevImposterRoundDone: 0 };
+    if (room.questions.length < MIN_VISIBLE_TASKS) return;
 
     for (const player of Object.values(room.players)) {
-        if (player.id === room.imposter) continue;
-
-        const questions = shuffle(room.questions, random).slice(0, perCrew);
-        const stations = shuffle(TASK_STATIONS, random).slice(0, perCrew);
-
-        taskState[player.id] = {
-            assignments: questions.map((q, i) => ({
-                questionId: q.id,
-                stationId: stations[i].id,
-            })),
-            revealed: MIN_VISIBLE_TASKS,
+        /** @type {PlayerTaskState} */
+        const state = {
+            batch: [],
+            revealed: 0,
             completed: [],
+            lifetimeDone: 0,
+            roundDone: 0,
         };
+        resetBatch(state, room, random);
+        room.taskState[player.id] = state;
     }
 };
 
 /**
+ * Tổng số crew đã làm từ đầu ván (dùng để tính tiến độ hiển thị khi vote).
+ * @param {GameRoom} room
+ * @returns {number}
+ */
+const crewLifetimeTotal = (room) => {
+    let sum = 0;
+    for (const [id, state] of Object.entries(room.taskState ?? {})) {
+        if (!room.players[id] || id === room.imposter) continue;
+        sum += state.lifetimeDone;
+    }
+    return sum;
+};
+
+/**
+ * Tiến độ hiển thị cho cả đội. Chỉ đổi sau mỗi lần vote (xem settleRound).
  * @param {GameRoom} room
  * @returns {TaskProgress}
  */
-const progress = (room) => {
-    let completed = 0;
-    let total = 0;
-    for (const [id, state] of Object.entries(room.taskState ?? {})) {
-        if (!room.players[id]) continue;
-        completed += state.completed.length;
-        total += state.assignments.length;
+const progress = (room) => ({
+    completed: room.taskMeta?.shownCompleted ?? 0,
+    total: TASK_GOAL,
+});
+
+/**
+ * Gọi sau mỗi lần vote.
+ * - Tiến độ hiển thị = tổng crew đã làm − floor(số câu imposter đã làm ở đợt trước / 2).
+ * - Sau đó lưu số câu imposter vừa làm trong đợt này làm "đợt trước" cho lần vote kế tiếp,
+ *   và reset đếm trong đợt của mọi người (mở lại điều kiện kill).
+ * @param {GameRoom} room
+ * @returns {void}
+ */
+const settleRound = (room) => {
+    if (!room.taskMeta) {
+        room.taskMeta = { shownCompleted: 0, prevImposterRoundDone: 0 };
     }
-    return { completed, total };
+    const meta = room.taskMeta;
+
+    const penalty = Math.floor(meta.prevImposterRoundDone / 2);
+    meta.shownCompleted = Math.max(0, crewLifetimeTotal(room) - penalty);
+
+    const imposterState = room.imposter
+        ? room.taskState?.[room.imposter]
+        : undefined;
+    meta.prevImposterRoundDone = imposterState?.roundDone ?? 0;
+
+    for (const state of Object.values(room.taskState ?? {})) {
+        state.roundDone = 0;
+    }
+};
+
+/**
+ * Imposter chỉ được kill khi đã làm đủ KILL_UNLOCK_TASKS câu trong đợt họp hiện tại.
+ * @param {GameRoom} room
+ * @param {string} playerId
+ * @returns {boolean}
+ */
+const canImposterKill = (room, playerId) => {
+    if (!room.imposter || playerId !== room.imposter) return false;
+    const state = room.taskState?.[playerId];
+    return !!state && state.roundDone >= KILL_UNLOCK_TASKS;
 };
 
 /**
  * Chỉ gồm nhiệm vụ đã mở (revealed). Nhiệm vụ chưa mở không được gửi đi.
+ * Tiến độ chung lấy từ progress(), nên không đổi cho đến khi vote.
  * @param {GameRoom} room
  * @param {string} playerId
  */
 const snapshot = (room, playerId) => {
     const state = room.taskState?.[playerId];
-    const visible = state ? state.assignments.slice(0, state.revealed) : [];
+    const visible = state ? state.batch.slice(0, state.revealed) : [];
 
     /** @type {ReturnType<typeof toPublicQuestion>[]} */
     const questions = [];
@@ -124,6 +213,7 @@ const snapshot = (room, playerId) => {
             completed: state?.completed.includes(a.questionId) ?? false,
         })),
         questions,
+        canKill: canImposterKill(room, playerId),
     };
 };
 
@@ -153,8 +243,8 @@ const submit = (room, playerId, input = {}) => {
 
     const player = room.players[playerId];
     const state = room.taskState?.[playerId];
-    if (!player || !state || playerId === room.imposter) {
-        return fail("NOT_CREW", "Chỉ crewmate mới được làm nhiệm vụ.");
+    if (!player || !state) {
+        return fail("NOT_PLAYER", "Bạn không có nhiệm vụ trong ván này.");
     }
 
     const { stationId, questionId, optionIndex } = input;
@@ -162,13 +252,11 @@ const submit = (room, playerId, input = {}) => {
         return fail("BAD_INPUT", "Dữ liệu nhiệm vụ không hợp lệ.");
     }
 
-    const index = state.assignments.findIndex(
-        (a) => a.questionId === questionId,
-    );
+    const index = state.batch.findIndex((a) => a.questionId === questionId);
     if (index < 0) {
         return fail("NOT_ASSIGNED", "Nhiệm vụ này không được giao cho bạn.");
     }
-    const assignment = state.assignments[index];
+    const assignment = state.batch[index];
     if (assignment.stationId !== stationId) {
         return fail("STATION_MISMATCH", "Trạm không khớp với nhiệm vụ này.");
     }
@@ -226,7 +314,13 @@ const submit = (room, playerId, input = {}) => {
     }
 
     state.completed.push(questionId);
-    if (state.revealed < state.assignments.length) state.revealed += 1;
+    state.lifetimeDone += 1;
+    state.roundDone += 1;
+
+    // Làm xong cả đợt: xóa 6 câu cũ, sinh đợt mới (tất cả chưa làm)
+    if (state.completed.length >= state.batch.length) {
+        resetBatch(state, room, Math.random);
+    }
 
     return {
         ok: true,
@@ -242,4 +336,6 @@ export const TasksManager = {
     progress,
     snapshot,
     submit,
+    settleRound,
+    canImposterKill,
 };
