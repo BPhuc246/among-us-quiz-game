@@ -60,7 +60,7 @@
  * @typedef {{
  *   isActive: boolean,
  *   callerId: string,
- *   votes: {[playerId: string]: string|null}, // playerId -> votedForId
+ *   votes: {[playerId: string]: string|null},
  *   endTime: number,
  *   results?: MeetingResults
  * }} MeetingState
@@ -71,20 +71,22 @@
  * - batch: đợt nhiệm vụ hiện tại (tối đa 6, không trùng câu trong đợt)
  * - revealed: số nhiệm vụ đang mở, tính theo thứ tự trong batch
  * - completed: id câu đã làm xong trong đợt hiện tại
- * - lifetimeDone: tổng số câu đã làm từ đầu ván (dùng cho crew)
- * - roundDone: số câu đã làm từ lần vote gần nhất (dùng cho điều kiện kill của imposter)
+ * - lifetimeDone: tổng số câu đã làm từ đầu ván (dùng để tính lượt giết của imposter)
+ * - roundDone: số câu đã làm từ lần vote gần nhất (dùng để tính tiến độ crew)
+ * - killsUsed: số lượt giết đã dùng (chỉ imposter)
  * @typedef {{
  *   batch: {questionId: string, stationId: string}[],
  *   revealed: number,
  *   completed: string[],
  *   lifetimeDone: number,
- *   roundDone: number
+ *   roundDone: number,
+ *   killsUsed: number
  * }} PlayerTaskState
  */
 
 /**
  * Thông tin tiến độ chung của phòng.
- * - shownCompleted: số tiến độ đang hiển thị, chỉ đổi sau mỗi lần vote
+ * - shownCompleted: tiến độ đang hiển thị, chỉ đổi sau mỗi lần vote
  * - prevImposterRoundDone: số câu imposter đã làm ở đợt họp trước, dùng để trừ tiến độ crew
  * @typedef {{
  *   shownCompleted: number,
@@ -109,6 +111,8 @@
  */
 
 /**
+ * Room gửi cho client: bỏ câu hỏi có đáp án, bỏ nhiệm vụ và bỏ taskMeta
+ * (taskMeta chứa số câu của imposter nên có thể làm lộ danh tính).
  * @typedef {Omit<GameRoom, 'questions' | 'taskState' | 'taskMeta'> & {questions: PublicQuestion[]}} PublicGameRoom
  */
 

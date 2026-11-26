@@ -8,7 +8,7 @@ const STATION_NAME = Object.fromEntries(
   SKELD_TASK_LOCATIONS.map((s) => [s.id, s.label]),
 );
 
-export default function QuizTasks({ socket, roomId, active }) {
+export default function QuizTasks({ socket, roomId, active, onTaskAction }) {
   const [state, setState] = useState(null);
   const [nearbyStation, setNearbyStation] = useState(null);
   const [openTask, setOpenTask] = useState(null); // { stationId, questionId }
@@ -159,6 +159,34 @@ export default function QuizTasks({ socket, roomId, active }) {
     return () => clearTimeout(t);
   }, [notice]);
 
+  // Báo trạng thái nút NHIỆM VỤ cho thanh hành động ở App
+  useEffect(() => {
+    if (!onTaskAction) return;
+    onTaskAction({
+      visible: showTasks,
+      isOpen: Boolean(openTask),
+      canUse: Boolean(openTask) || Boolean(nearbyStation),
+      canKill: Boolean(state?.canKill),
+      onClick: () => {
+        if (openTask) closeTask();
+        else if (nearbyStation) openStation(nearbyStation.id);
+      },
+    });
+  }, [
+    showTasks,
+    openTask,
+    nearbyStation,
+    state?.canKill,
+    onTaskAction,
+    closeTask,
+    openStation,
+  ]);
+
+  // Khi component bị gỡ, xóa nút khỏi thanh hành động
+  useEffect(() => {
+    return () => onTaskAction?.(null);
+  }, [onTaskAction]);
+
   // Mọi hook ở trên. Từ đây trở xuống chỉ là logic render thuần.
   if (!showTasks) return null;
 
@@ -176,7 +204,6 @@ export default function QuizTasks({ socket, roomId, active }) {
     ? state.questions.find((q) => q.id === openTask.questionId)
     : null;
   const connected = Boolean(socket?.connected);
-  const canUse = Boolean(nearbyStation) && !openTask;
 
   const submit = (optionIndex) => {
     if (!openTask || pending || result?.correct || !socket) return;
@@ -248,7 +275,7 @@ export default function QuizTasks({ socket, roomId, active }) {
         </h2>
         <p className={styles.hint}>
           {nearbyStation
-            ? `Nhấn E hoặc nút bên phải để làm ${nearbyStation.label}.`
+            ? `Nhấn E hoặc nút NHIỆM VỤ ở góc dưới bên phải để làm ${nearbyStation.label}.`
             : "Di chuyển đến ô có viền vàng để làm nhiệm vụ."}
         </p>
         {notice && <p className={styles.hint}>{notice}</p>}
@@ -262,16 +289,6 @@ export default function QuizTasks({ socket, roomId, active }) {
           ))}
         </ul>
       </aside>
-
-      <button
-        className={styles.useButton}
-        disabled={!canUse}
-        onClick={() => {
-          if (canUse) openStation(nearbyStation.id);
-        }}
-      >
-        LÀM NHIỆM VỤ <kbd>E</kbd>
-      </button>
 
       {openTask && question && (
         <TaskQuestion

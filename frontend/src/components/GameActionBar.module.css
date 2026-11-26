@@ -1,0 +1,181 @@
+.bar {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  z-index: 1100;
+}
+
+.iconBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.iconBtn:hover:not(:disabled) {
+  transform: translateY(-4px) scale(1.04);
+}
+
+.iconBtn:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+}
+
+.iconBtn:disabled {
+  cursor: not-allowed;
+}
+
+.iconWrap {
+  width: 96px;
+  height: 96px;
+  display: block;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
+  transition: filter 0.12s ease;
+}
+
+.iconBtn:disabled .iconWrap {
+  filter: grayscale(100%) brightness(0.6)
+    drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));
+}
+
+.icon {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Trạng thái đang bật (đang mở nhiệm vụ, đang sẵn sàng): viền sáng */
+.active .iconWrap {
+  filter: drop-shadow(0 0 10px rgba(255, 220, 80, 0.8))
+    drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
+}
+
+.caption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font:
+    800 0.72rem/1 system-ui,
+    sans-serif;
+  letter-spacing: 1px;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+}
+
+.kill .iconWrap {
+  animation: killPulse 1.6s ease-in-out infinite;
+}
+
+.iconBtn:disabled .iconWrap {
+  animation: none;
+}
+
+@keyframes killPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+.kbd {
+  padding: 1px 6px;
+  border-radius: 6px;
+  font:
+    700 0.62rem/1.4 system-ui,
+    sans-serif;
+  background: rgba(8, 12, 26, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+/* Chat không có icon, giữ dạng nút chữ */
+.chatBtn {
+  position: relative;
+  min-width: 96px;
+  height: 64px;
+  align-self: center;
+  padding: 0 18px;
+  border-radius: 14px;
+  border: 2px solid #81c784;
+  background: rgba(8, 12, 26, 0.92);
+  color: #fff;
+  font:
+    800 0.95rem/1 system-ui,
+    sans-serif;
+  letter-spacing: 1px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.chatBtn:hover {
+  transform: translateY(-2px);
+}
+
+.chatActive {
+  background: #fff;
+  color: #0b1020;
+}
+
+.badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #ff4d4f;
+  color: #fff;
+  font-size: 0.7rem;
+  display: grid;
+  place-items: center;
+}
+
+@media (max-width: 720px) {
+  .bar {
+    right: 10px;
+    bottom: 10px;
+    gap: 8px;
+  }
+  .iconWrap {
+    width: 72px;
+    height: 72px;
+  }
+  .chatBtn {
+    min-width: 72px;
+    height: 50px;
+  }
+}
+
+.textFallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  border: 2px solid #fff;
+  background: rgba(8, 12, 26, 0.92);
+  font:
+    800 0.85rem/1.1 system-ui,
+    sans-serif;
+  color: #fff;
+  text-align: center;
+  padding: 6px;
+}

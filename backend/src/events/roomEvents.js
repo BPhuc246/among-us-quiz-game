@@ -203,10 +203,11 @@ export const registerRoomEvents = (io, socket) => {
     };
 
     /**
+     * Thực hiện rời phòng. Tách riêng để roomLeave luôn gọi ack, kể cả khi thoát sớm.
      * @param {PlayerIdData} data
      * @returns {void}
      */
-    const roomLeave = (data) => {
+    const leaveRoomNow = (data) => {
         console.log("Room leave received:", data);
         const player = PlayersManager.getPlayer(data.playerId);
         if (!player) return;
@@ -245,6 +246,20 @@ export const registerRoomEvents = (io, socket) => {
         socket.leave(`${roomId}:spectators`);
         if (deleted) {
             io.emit("room:deleted", { roomId });
+        }
+    };
+
+    /**
+     * @param {PlayerIdData} data
+     * @param {(response: {ok: boolean}) => void} [ack]
+     * @returns {void}
+     */
+    const roomLeave = (data, ack) => {
+        const reply = typeof ack === "function" ? ack : () => {};
+        try {
+            leaveRoomNow(data);
+        } finally {
+            reply({ ok: true });
         }
     };
 

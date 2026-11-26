@@ -3,15 +3,12 @@ import { toPublicQuestion } from "./questions.manager.js";
 /**
  * @typedef {import('../types/room.type.js').GameRoom} GameRoom
  * @typedef {import('../types/room.type.js').Question} Question
+ * @typedef {import('../types/room.type.js').PlayerTaskState} PlayerTaskState
+ */
+
+/**
  * @typedef {{id: string, x: number, y: number}} Station
  * @typedef {{questionId: string, stationId: string}} Assignment
- * @typedef {{
- *   batch: Assignment[],
- *   revealed: number,
- *   completed: string[],
- *   lifetimeDone: number,
- *   roundDone: number
- * }} PlayerTaskState
  * @typedef {{completed: number, total: number}} TaskProgress
  * @typedef {{stationId?: unknown, questionId?: unknown, optionIndex?: unknown}} SubmitInput
  * @typedef {{
@@ -30,7 +27,7 @@ export const TASK_GOAL = 60;
 export const BATCH_SIZE = 6;
 /** Số nhiệm vụ mở sẵn khi bắt đầu mỗi đợt. */
 export const MIN_VISIBLE_TASKS = 2;
-/** Imposter phải làm đủ số câu này trong đợt họp hiện tại mới được kill. */
+/** Cứ mỗi số nhiệm vụ này imposter làm được thì có thêm 1 lượt giết. */
 export const KILL_UNLOCK_TASKS = 2;
 
 export const TASK_USE_RADIUS = 55;
@@ -72,7 +69,7 @@ const findQuestion = (room, questionId) =>
 
 /**
  * Tạo một đợt mới: tối đa BATCH_SIZE câu, không trùng câu trong cùng đợt.
- * Trạm được xoay vòng qua danh sách, nên khi đợt có nhiều hơn số trạm thì một trạm sẽ có 2 nhiệm vụ.
+ * Trạm được xoay vòng, nên khi đợt có nhiều hơn số trạm thì một trạm có 2 nhiệm vụ.
  * @param {GameRoom} room
  * @param {() => number} random
  * @returns {Assignment[]}
@@ -88,7 +85,7 @@ const buildBatch = (room, random) => {
 };
 
 /**
- * Đặt đợt mới: 6 nhiệm vụ đều được mở, tất cả đều chưa làm.
+ * Đặt đợt mới: tất cả nhiệm vụ đều được mở, tất cả đều chưa làm.
  * @param {PlayerTaskState} state
  * @param {GameRoom} room
  * @param {() => number} random
@@ -96,7 +93,7 @@ const buildBatch = (room, random) => {
  */
 const resetBatch = (state, room, random) => {
     state.batch = buildBatch(room, random);
-    state.revealed = state.batch.length; // mở đủ cả đợt
+    state.revealed = state.batch.length;
     state.completed = [];
 };
 
@@ -118,6 +115,7 @@ const initialize = (room, random = Math.random) => {
             completed: [],
             lifetimeDone: 0,
             roundDone: 0,
+            killsUsed: 0,
         };
         resetBatch(state, room, random);
         room.taskState[player.id] = state;
@@ -151,8 +149,7 @@ const progress = (room) => ({
 /**
  * Gọi sau mỗi lần vote.
  * - Tiến độ hiển thị = tổng crew đã làm − floor(số câu imposter đã làm ở đợt trước / 2).
- * - Sau đó lưu số câu imposter vừa làm trong đợt này làm "đợt trước" cho lần vote kế tiếp,
- *   và reset đếm trong đợt của mọi người (mở lại điều kiện kill).
+ * - Lưu số câu imposter vừa làm trong đợt này cho lần vote kế tiếp, rồi reset đếm đợt.
  * @param {GameRoom} room
  * @returns {void}
  */
@@ -176,7 +173,15 @@ const settleRound = (room) => {
 };
 
 /**
- * Imposter chỉ được kill khi đã làm đủ KILL_UNLOCK_TASKS câu trong đợt họp hiện tại.
+ * Số lượt giết còn lại: cứ KILL_UNLOCK_TASKS nhiệm vụ làm được thì +1, mỗi lần giết −1.
+ * @param {PlayerTaskState} state
+ * @returns {number}
+ */
+const availableKills = (state) =>
+    Math.floor(state.lifetimeDone / KILL_UNLOCK_TASKS) - state.killsUsed;
+
+/**
+ * Imposter có lượt giết còn lại hay không.
  * @param {GameRoom} room
  * @param {string} playerId
  * @returns {boolean}
@@ -184,7 +189,23 @@ const settleRound = (room) => {
 const canImposterKill = (room, playerId) => {
     if (!room.imposter || playerId !== room.imposter) return false;
     const state = room.taskState?.[playerId];
-    return !!state && state.roundDone >= KILL_UNLOCK_TASKS;
+    if (!state) return false;
+    return availableKills(state) > 0;
+};
+
+/**
+ * Thử dùng một lượt giết. Trả về true nếu được phép và đã trừ lượt.
+ * Gọi trong handler giết, trước khi đánh dấu nạn nhân chết.
+ * @param {GameRoom} room
+ * @param {string} playerId
+ * @returns {boolean}
+ */
+const consumeKill = (room, playerId) => {
+    if (!room.imposter || playerId !== room.imposter) return false;
+    const state = room.taskState?.[playerId];
+    if (!state || availableKills(state) <= 0) return false;
+    state.killsUsed += 1;
+    return true;
 };
 
 /**
@@ -317,7 +338,7 @@ const submit = (room, playerId, input = {}) => {
     state.lifetimeDone += 1;
     state.roundDone += 1;
 
-    // Làm xong cả đợt: xóa 6 câu cũ, sinh đợt mới (tất cả chưa làm)
+    // Làm xong cả đợt: sinh đợt mới (tất cả chưa làm)
     if (state.completed.length >= state.batch.length) {
         resetBatch(state, room, Math.random);
     }
@@ -338,4 +359,5 @@ export const TasksManager = {
     submit,
     settleRound,
     canImposterKill,
+    consumeKill,
 };
